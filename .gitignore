@@ -1,0 +1,36 @@
+## Ignore Visual Studio files
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## Ignore bin and obj directories
+[Bb]in/
+[Oo]bj/
+
+## Ignore ReSharper and other JetBrains files
+*.resharper
+*.resharper.user
+_ReSharper.*/
+*.[Ee]xplorer/
+*.idea/
+
+## Ignore NuGet packages
+packages/
+*.nupkg
+.nuget/
+
+## Ignore Rider specific files
+*.csproj.user
+*.sln.user
+.idea/
+
+## Ignore Visual Studio Code files
+.vscode/
+
+## Ignore build output
+*.log
+*.pdb
+*.psess
+_UpgradeReport_Files/
