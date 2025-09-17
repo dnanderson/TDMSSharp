@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TDMSSharp", "TDMSSharp\TDMSSharp.csproj", "{ED030551-4B98-445F-A160-5C1641372D65}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TDMSSharp.Tests", "TDMSSharp.Tests\TDMSSharp.Tests.csproj", "{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{ED030551-4B98-445F-A160-5C1641372D65}.Release|x64.Build.0 = Release|Any CPU
 		{ED030551-4B98-445F-A160-5C1641372D65}.Release|x86.ActiveCfg = Release|Any CPU
 		{ED030551-4B98-445F-A160-5C1641372D65}.Release|x86.Build.0 = Release|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Debug|x64.Build.0 = Debug|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Debug|x86.Build.0 = Debug|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Release|x64.ActiveCfg = Release|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Release|x64.Build.0 = Release|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Release|x86.ActiveCfg = Release|Any CPU
+		{9E1484E0-8A42-4431-B822-2C1CEF2C63FF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
