@@ -17,7 +17,7 @@ namespace TDMSSharp
 
         public void WriteFile(TdmsFile file)
         {
-            _writer.Seek(28, SeekOrigin.Begin);
+            _writer.BaseStream.Seek(28, SeekOrigin.Begin);
 
             long metaDataStart = _writer.BaseStream.Position;
             WriteMetaData(file);
@@ -31,7 +31,7 @@ namespace TDMSSharp
                 {
                     if (channel.Data != null)
                     {
-                        WriteRawData(channel.Data);
+                        WriteRawData(_writer, channel.Data);
                     }
                 }
             }
@@ -40,7 +40,7 @@ namespace TDMSSharp
 
             long nextSegmentOffset = metaDataLength + rawDataLength;
 
-            _writer.Seek(0, SeekOrigin.Begin);
+            _writer.BaseStream.Seek(0, SeekOrigin.Begin);
 
             uint tocMask = 0;
             tocMask |= (1 << 1); // kTocMetaData
@@ -53,7 +53,7 @@ namespace TDMSSharp
             _writer.Write((ulong)nextSegmentOffset);
             _writer.Write((ulong)metaDataLength); // Raw data offset
 
-            _writer.Seek(0, SeekOrigin.End);
+            _writer.BaseStream.Seek(0, SeekOrigin.End);
         }
 
         private void WriteMetaData(TdmsFile file)
@@ -66,21 +66,21 @@ namespace TDMSSharp
             }
             _writer.Write(objectCount);
 
-            WriteObjectMetaData("/", file.Properties);
+            WriteObjectMetaData(_writer, "/", file.Properties);
 
             foreach (var group in file.ChannelGroups)
             {
-                WriteObjectMetaData(group.Path, group.Properties);
+                WriteObjectMetaData(_writer, group.Path, group.Properties);
                 foreach (var channel in group.Channels)
                 {
-                    WriteObjectMetaData(channel.Path, channel.Properties, channel);
+                    WriteObjectMetaData(_writer, channel.Path, channel.Properties, channel);
                 }
             }
         }
 
-        private void WriteObjectMetaData(string path, IList<TdmsProperty> properties, TdmsChannel channel = null)
+        internal static void WriteObjectMetaData(BinaryWriter writer, string path, IList<TdmsProperty> properties, TdmsChannel? channel = null)
         {
-            WriteString(path);
+            WriteString(writer, path);
 
             if (channel != null && channel.NumberOfValues > 0)
             {
@@ -90,77 +90,115 @@ namespace TDMSSharp
                     tempWriter.Write((uint)channel.DataType);
                     tempWriter.Write((uint)1); // Dimension
                     tempWriter.Write(channel.NumberOfValues);
-                    if (channel.DataType == TdsDataType.String)
+                    if (channel.DataType == TdsDataType.String && channel.Data != null)
                     {
-                        tempWriter.Write((ulong)0); // Placeholder
+                        var totalBytes = 0UL;
+                        foreach (var s in (string[])channel.Data) totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
+                        tempWriter.Write(totalBytes);
                     }
-                    _writer.Write((uint)ms.Length);
-                    _writer.Write(ms.ToArray());
+                    writer.Write((uint)ms.Length);
+                    writer.Write(ms.ToArray());
                 }
             }
             else
             {
-                _writer.Write((uint)0xFFFFFFFF);
+                writer.Write((uint)0xFFFFFFFF);
             }
 
-            _writer.Write((uint)properties.Count);
+            writer.Write((uint)properties.Count);
             foreach (var prop in properties)
             {
-                WriteString(prop.Name);
-                _writer.Write((uint)prop.DataType);
-                WriteValue(prop.Value, prop.DataType);
+                WriteString(writer, prop.Name);
+                writer.Write((uint)prop.DataType);
+                if (prop.Value != null) WriteValue(writer, prop.Value, prop.DataType);
             }
         }
 
-        private void WriteRawData(object data)
+        internal static void WriteRawData(BinaryWriter writer, object data)
         {
             var array = (Array)data;
             if (array.Length == 0) return;
 
             var elementType = array.GetType().GetElementType();
+            if (elementType == null) return;
             if (elementType.IsPrimitive)
             {
                 var elementSize = System.Runtime.InteropServices.Marshal.SizeOf(elementType);
                 var byteBuffer = new byte[array.Length * elementSize];
                 Buffer.BlockCopy(array, 0, byteBuffer, 0, byteBuffer.Length);
-                _writer.Write(byteBuffer);
+                writer.Write(byteBuffer);
+            }
+            else if (elementType == typeof(string))
+            {
+                var strings = (string[])data;
+                var offsets = new uint[strings.Length];
+                using (var ms = new MemoryStream())
+                {
+                    var currentOffset = (uint)(strings.Length * 4);
+                    for (int i = 0; i < strings.Length; i++)
+                    {
+                        offsets[i] = currentOffset;
+                        var bytes = Encoding.UTF8.GetBytes(strings[i]);
+                        ms.Write(bytes, 0, bytes.Length);
+                        currentOffset += (uint)bytes.Length;
+                    }
+
+                    foreach (var offset in offsets) writer.Write(offset);
+                    writer.Write(ms.ToArray());
+                }
+            }
+            else if (elementType == typeof(bool))
+            {
+                foreach(var b in (bool[])data) writer.Write((byte)(b ? 1 : 0));
+            }
+            else if (elementType == typeof(DateTime))
+            {
+                foreach (var dt in (DateTime[])data)
+                {
+                    var timestamp = (DateTime)dt;
+                    var timespan = timestamp.ToUniversalTime() - TdmsEpoch;
+                    long seconds = (long)timespan.TotalSeconds;
+                    var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) * (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
+                    writer.Write(fractions);
+                    writer.Write(seconds);
+                }
             }
             else
             {
-                throw new NotSupportedException("Writing raw data for non-primitive types is not supported.");
+                throw new NotSupportedException($"Writing raw data for {elementType} is not supported.");
             }
         }
 
-        private void WriteString(string s)
+        internal static void WriteString(BinaryWriter writer, string s)
         {
             var bytes = Encoding.UTF8.GetBytes(s);
-            _writer.Write((uint)bytes.Length);
-            _writer.Write(bytes);
+            writer.Write((uint)bytes.Length);
+            writer.Write(bytes);
         }
 
-        private void WriteValue(object value, TdsDataType dataType)
+        internal static void WriteValue(BinaryWriter writer, object value, TdsDataType dataType)
         {
             switch (dataType)
             {
-                case TdsDataType.I8: _writer.Write((sbyte)value); break;
-                case TdsDataType.I16: _writer.Write((short)value); break;
-                case TdsDataType.I32: _writer.Write((int)value); break;
-                case TdsDataType.I64: _writer.Write((long)value); break;
-                case TdsDataType.U8: _writer.Write((byte)value); break;
-                case TdsDataType.U16: _writer.Write((ushort)value); break;
-                case TdsDataType.U32: _writer.Write((uint)value); break;
-                case TdsDataType.U64: _writer.Write((ulong)value); break;
-                case TdsDataType.SingleFloat: _writer.Write((float)value); break;
-                case TdsDataType.DoubleFloat: _writer.Write((double)value); break;
-                case TdsDataType.String: WriteString((string)value); break;
-                case TdsDataType.Boolean: _writer.Write((bool)value); break;
+                case TdsDataType.I8: writer.Write((sbyte)value); break;
+                case TdsDataType.I16: writer.Write((short)value); break;
+                case TdsDataType.I32: writer.Write((int)value); break;
+                case TdsDataType.I64: writer.Write((long)value); break;
+                case TdsDataType.U8: writer.Write((byte)value); break;
+                case TdsDataType.U16: writer.Write((ushort)value); break;
+                case TdsDataType.U32: writer.Write((uint)value); break;
+                case TdsDataType.U64: writer.Write((ulong)value); break;
+                case TdsDataType.SingleFloat: writer.Write((float)value); break;
+                case TdsDataType.DoubleFloat: writer.Write((double)value); break;
+                case TdsDataType.String: WriteString(writer, (string)value); break;
+                case TdsDataType.Boolean: writer.Write((bool)value); break;
                 case TdsDataType.TimeStamp:
                     var timestamp = (DateTime)value;
-                    var timespan = timestamp - TdmsEpoch;
+                    var timespan = timestamp.ToUniversalTime() - TdmsEpoch;
                     long seconds = (long)timespan.TotalSeconds;
-                    var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) * (1.0 / TimeSpan.TicksPerSecond * (1UL << 64)));
-                    _writer.Write(fractions);
-                    _writer.Write(seconds);
+                    var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) * (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
+                    writer.Write(fractions);
+                    writer.Write(seconds);
                     break;
                 default:
                     throw new NotSupportedException($"Data type {dataType} is not supported for properties.");

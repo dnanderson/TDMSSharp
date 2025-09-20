@@ -2,9 +2,9 @@ namespace TDMSSharp
 {
     public class TdmsChannel<T> : TdmsChannel
     {
-        public new T[] Data
+        public new T[]? Data
         {
-            get => (T[])base.Data;
+            get => (T[]?)base.Data;
             set => base.Data = value;
         }
 
