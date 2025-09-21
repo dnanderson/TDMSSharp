@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 
@@ -31,131 +32,121 @@ namespace TDMSSharp
             long segmentStartPosition = _reader.BaseStream.Position;
 
             var leadIn = ReadLeadIn();
-            if (leadIn == null)
-            {
-                // Could not read a lead-in. Assume end of file or corruption.
-                // To prevent infinite loop, advance position to the end.
-                _reader.BaseStream.Position = _reader.BaseStream.Length;
-                return;
-            }
+            if (leadIn == null) { _reader.BaseStream.Position = _reader.BaseStream.Length; return; }
+
+            var channelsInSegment = new List<TdmsChannel>();
+            var valueCounts = new Dictionary<TdmsChannel, ulong>();
 
             if ((leadIn.Value.tocMask & (1 << 1)) != 0) // kTocMetaData
             {
-                ReadMetaData(file);
+                var objectCount = _reader.ReadUInt32();
+                for (int i = 0; i < objectCount; i++)
+                {
+                    var path = ReadString();
+                    var pathParts = ParsePath(path);
+
+                    object tdmsObject = null;
+                    TdmsChannel channel = null;
+
+                    if (pathParts.Count == 0)
+                    {
+                        tdmsObject = file;
+                    }
+                    else if (pathParts.Count == 1)
+                    {
+                        tdmsObject = file.GetOrAddChannelGroup(pathParts[0]);
+                    }
+                    else // Channel
+                    {
+                        var group = file.GetOrAddChannelGroup(pathParts[0]);
+                        channel = group.Channels.FirstOrDefault(c => c.Path == path);
+                    }
+
+                    var rawDataIndexLength = _reader.ReadUInt32();
+                    if (rawDataIndexLength > 0 && rawDataIndexLength != 0xFFFFFFFF)
+                    {
+                        var dataType = (TdsDataType)_reader.ReadUInt32();
+                        _reader.ReadUInt32(); // Dimension
+                        var segmentValueCount = _reader.ReadUInt64();
+
+                        if (channel == null)
+                        {
+                            var channelType = TdsDataTypeProvider.GetType(dataType);
+                            var genericChannelType = typeof(TdmsChannel<>).MakeGenericType(channelType);
+                            channel = (TdmsChannel)Activator.CreateInstance(genericChannelType, path);
+                            file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
+                        }
+
+                        channel.DataType = dataType;
+                        channel.NumberOfValues += segmentValueCount;
+                        if(segmentValueCount > 0)
+                        {
+                            channelsInSegment.Add(channel);
+                            valueCounts[channel] = segmentValueCount;
+                        }
+                        if (dataType == TdsDataType.String) _reader.ReadUInt64();
+                    }
+
+                    tdmsObject = tdmsObject ?? channel;
+                    if (tdmsObject == null) continue;
+
+                    var numProperties = _reader.ReadUInt32();
+                    var properties = GetPropertiesList(tdmsObject);
+                    for (int j = 0; j < numProperties; j++)
+                    {
+                        var propName = ReadString();
+                        var propDataType = (TdsDataType)_reader.ReadUInt32();
+                        var propValue = ReadValue(propDataType);
+                        properties.Add(new TdmsProperty(propName, propDataType, propValue));
+                    }
+                }
             }
 
-            // Advance stream to the start of the next segment.
-            // The lead-in is 28 bytes long. nextSegmentOffset is the length of the rest of the segment.
+            long rawDataPosition = segmentStartPosition + 28 + (long)leadIn.Value.rawDataOffset;
+            _reader.BaseStream.Seek(rawDataPosition, SeekOrigin.Begin);
+            foreach(var channel in channelsInSegment)
+            {
+                ReadChannelData(channel, valueCounts[channel]);
+            }
+
             long nextSegmentPosition = segmentStartPosition + 28 + (long)leadIn.Value.nextSegmentOffset;
-            if (nextSegmentPosition > _reader.BaseStream.Length)
-            {
-                // If the offset points past the end of the file, assume it's the last segment.
-                _reader.BaseStream.Position = _reader.BaseStream.Length;
-            }
-            else
-            {
-                _reader.BaseStream.Position = nextSegmentPosition;
-            }
+            if (nextSegmentPosition <= segmentStartPosition) _reader.BaseStream.Position = _reader.BaseStream.Length;
+            else _reader.BaseStream.Position = nextSegmentPosition;
         }
 
         private (uint tocMask, uint version, ulong nextSegmentOffset, ulong rawDataOffset)? ReadLeadIn()
         {
-            if (_reader.BaseStream.Position + 28 > _reader.BaseStream.Length)
-                return null;
-
+            if (_reader.BaseStream.Position + 28 > _reader.BaseStream.Length) return null;
             var tag = _reader.ReadBytes(4);
-            if (Encoding.ASCII.GetString(tag) != "TDSm")
-            {
-                // If we are not at the end of the stream but can't find the tag,
-                // it's possible the file is corrupt or we are out of sync.
-                // We will return null and let the caller handle it.
-                return null;
-            }
-
-            var tocMask = _reader.ReadUInt32();
-            var version = _reader.ReadUInt32();
-            var nextSegmentOffset = _reader.ReadUInt64();
-            var rawDataOffset = _reader.ReadUInt64();
-
-            return (tocMask, version, nextSegmentOffset, rawDataOffset);
+            if(tag.Length < 4 || Encoding.ASCII.GetString(tag) != "TDSm") return null;
+            return (_reader.ReadUInt32(), _reader.ReadUInt32(), _reader.ReadUInt64(), _reader.ReadUInt64());
         }
 
-        private void ReadMetaData(TdmsFile file)
+        private void ReadChannelData(TdmsChannel channel, ulong count)
         {
-            var objectCount = _reader.ReadUInt32();
-            for (int i = 0; i < objectCount; i++)
-            {
-                var path = ReadString();
-                var pathParts = ParsePath(path);
+            if (count == 0) return;
+            var channelType = TdsDataTypeProvider.GetType(channel.DataType);
+            var readMethod = typeof(TdmsReader).GetMethod(nameof(ReadData), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                                             .MakeGenericMethod(channelType);
+            var data = (Array)readMethod.Invoke(this, new object[] { count });
+            typeof(TdmsChannel<>).MakeGenericType(channelType)
+                                 .GetMethod("AppendData")
+                                 .Invoke(channel, new object[] { data });
+        }
 
-                object tdmsObject;
-
-                if (pathParts.Count == 0)
-                {
-                    tdmsObject = file;
-                }
-                else if (pathParts.Count == 1)
-                {
-                    tdmsObject = file.GetOrAddChannelGroup(path);
-                }
-                else if (pathParts.Count == 2)
-                {
-                    var groupPath = $"/'{pathParts[0]}'";
-                    var channelGroup = file.GetOrAddChannelGroup(groupPath);
-                    tdmsObject = channelGroup.GetOrAddChannel(path);
-                }
-                else
-                {
-                    throw new NotSupportedException($"Paths with more than 2 levels are not supported: {path}");
-                }
-
-                var rawDataIndexLength = _reader.ReadUInt32();
-                if (rawDataIndexLength > 0 && rawDataIndexLength != 0xFFFFFFFF)
-                {
-                    var dataType = (TdsDataType)_reader.ReadUInt32();
-                    var dimension = _reader.ReadUInt32();
-                    if (dimension != 1)
-                        throw new NotSupportedException("Only 1-dimensional arrays are supported.");
-
-                    var numberOfValues = _reader.ReadUInt64();
-
-                    if (tdmsObject is TdmsChannel channel)
-                    {
-                        channel.DataType = dataType;
-                        channel.NumberOfValues += numberOfValues;
-                    }
-
-                    if (dataType == TdsDataType.String)
-                    {
-                        var totalSizeInBytes = _reader.ReadUInt64();
-                    }
-                }
-
-                var numProperties = _reader.ReadUInt32();
-                var properties = GetPropertiesList(tdmsObject);
-
-                for (int j = 0; j < numProperties; j++)
-                {
-                    var propName = ReadString();
-                    var propDataType = (TdsDataType)_reader.ReadUInt32();
-                    var propValue = ReadValue(propDataType);
-                    properties.Add(new TdmsProperty(propName, propDataType, propValue));
-                }
-            }
+        private T[] ReadData<T>(ulong count)
+        {
+            var data = new T[count];
+            var type = TdsDataTypeProvider.GetDataType<T>();
+            for (ulong i = 0; i < count; i++) data[i] = (T)ReadValue(type);
+            return data;
         }
 
         private List<string> ParsePath(string path)
         {
-            var parts = new List<string>();
-            if (string.IsNullOrEmpty(path) || path == "/") return parts;
-
-            var pathWithoutRoot = path.Substring(1);
-            var stringParts = pathWithoutRoot.Split(new[] { "'/'" }, StringSplitOptions.None);
-            foreach (var part in stringParts)
-            {
-                parts.Add(part.Trim('\'').Replace("''", "'"));
-            }
-            return parts;
+            if (string.IsNullOrEmpty(path) || path == "/") return new List<string>();
+            return path.Substring(1).Split(new[] { "'/'" }, StringSplitOptions.None)
+                       .Select(p => p.Trim('\'').Replace("''", "'")).ToList();
         }
 
         private IList<TdmsProperty> GetPropertiesList(object tdmsObject)
@@ -169,9 +160,7 @@ namespace TDMSSharp
         private string ReadString()
         {
             var length = _reader.ReadUInt32();
-            if (length == 0) return string.Empty;
-            var bytes = _reader.ReadBytes((int)length);
-            return Encoding.UTF8.GetString(bytes);
+            return length > 0 ? Encoding.UTF8.GetString(_reader.ReadBytes((int)length)) : string.Empty;
         }
 
         private object ReadValue(TdsDataType dataType)
@@ -195,8 +184,7 @@ namespace TDMSSharp
                     var seconds = _reader.ReadInt64();
                     var ticks = (long)(new BigInteger(fractions) * 10_000_000 / (BigInteger.One << 64));
                     return TdmsEpoch.AddSeconds(seconds).AddTicks(ticks);
-                default:
-                    throw new NotSupportedException($"Data type {dataType} is not supported for properties.");
+                default: throw new NotSupportedException($"Data type {dataType} not implemented in this snippet.");
             }
         }
     }
