@@ -26,6 +26,7 @@ namespace TDMSSharp
             }
             return file;
         }
+        private readonly Dictionary<string, TdmsRawDataIndex> _previousIndices = new Dictionary<string, TdmsRawDataIndex>();
 
         private void ReadSegment(TdmsFile file)
         {
@@ -63,11 +64,42 @@ namespace TDMSSharp
                     }
 
                     var rawDataIndexLength = _reader.ReadUInt32();
-                    if (rawDataIndexLength > 0 && rawDataIndexLength != 0xFFFFFFFF)
+
+                    if (rawDataIndexLength == 0xFFFFFFFF)
+                    {
+                        // No raw data for this object
+                    }
+                    else if (rawDataIndexLength == 0x00000000)
+                    {
+                        // Raw data index matches previous segment - reuse it
+                        if (_previousIndices.TryGetValue(path, out var previousIndex))
+                        {
+                            if (channel == null)
+                            {
+                                var channelType = TdsDataTypeProvider.GetType(previousIndex.DataType);
+                                var genericChannelType = typeof(TdmsChannel<>).MakeGenericType(channelType);
+                                channel = (TdmsChannel)Activator.CreateInstance(genericChannelType, path);
+                                file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
+                            }
+
+                            channel.DataType = previousIndex.DataType;
+                            channel.NumberOfValues += previousIndex.NumberOfValues;
+
+                            if (previousIndex.NumberOfValues > 0)
+                            {
+                                channelsInSegment.Add(channel);
+                                valueCounts[channel] = previousIndex.NumberOfValues;
+                            }
+                        }
+                    }
+                    else if (rawDataIndexLength > 0)
                     {
                         var dataType = (TdsDataType)_reader.ReadUInt32();
                         _reader.ReadUInt32(); // Dimension
                         var segmentValueCount = _reader.ReadUInt64();
+
+                        // Store this index for future segments
+                        _previousIndices[path] = new TdmsRawDataIndex(dataType, segmentValueCount);
 
                         if (channel == null)
                         {
@@ -79,7 +111,7 @@ namespace TDMSSharp
 
                         channel.DataType = dataType;
                         channel.NumberOfValues += segmentValueCount;
-                        if(segmentValueCount > 0)
+                        if (segmentValueCount > 0)
                         {
                             channelsInSegment.Add(channel);
                             valueCounts[channel] = segmentValueCount;
@@ -104,7 +136,7 @@ namespace TDMSSharp
 
             long rawDataPosition = segmentStartPosition + 28 + (long)leadIn.Value.rawDataOffset;
             _reader.BaseStream.Seek(rawDataPosition, SeekOrigin.Begin);
-            foreach(var channel in channelsInSegment)
+            foreach (var channel in channelsInSegment)
             {
                 ReadChannelData(channel, valueCounts[channel]);
             }
@@ -118,7 +150,7 @@ namespace TDMSSharp
         {
             if (_reader.BaseStream.Position + 28 > _reader.BaseStream.Length) return null;
             var tag = _reader.ReadBytes(4);
-            if(tag.Length < 4 || Encoding.ASCII.GetString(tag) != "TDSm") return null;
+            if (tag.Length < 4 || Encoding.ASCII.GetString(tag) != "TDSm") return null;
             return (_reader.ReadUInt32(), _reader.ReadUInt32(), _reader.ReadUInt64(), _reader.ReadUInt64());
         }
 

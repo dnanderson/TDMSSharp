@@ -51,7 +51,12 @@ namespace TDMSSharp
             {
                 long returnPos = _writer.BaseStream.Position;
                 _writer.BaseStream.Seek(_previousSegmentLeadInStart + 12, SeekOrigin.Begin);
-                _writer.Write((ulong)(currentSegmentLeadInStart - (_previousSegmentLeadInStart + 28)));
+
+                // Calculate offset from end of previous segment's lead-in to start of current segment
+                long previousSegmentEnd = _previousSegmentLeadInStart + 28;
+                long offsetToNextSegment = currentSegmentLeadInStart - previousSegmentEnd;
+                _writer.Write((ulong)offsetToNextSegment);
+
                 _writer.BaseStream.Seek(returnPos, SeekOrigin.Begin);
             }
 
@@ -63,8 +68,8 @@ namespace TDMSSharp
             _writer.Write(Encoding.ASCII.GetBytes("TDSm"));
             _writer.Write(tocMask);
             _writer.Write((uint)4713); // Version
-            _writer.Write((ulong)0); // Next segment offset (will be updated by next segment or on close)
-            _writer.Write((ulong)metaDataLength); // Raw data offset is the length of metadata
+            _writer.Write((ulong)(metaDataLength + rawDataLength)); // Next segment offset (fixed)
+            _writer.Write((ulong)metaDataLength); // Raw data offset
 
             // Write the actual segment data
             _writer.Write(segmentStream.ToArray());
@@ -72,6 +77,8 @@ namespace TDMSSharp
 
             _previousSegmentLeadInStart = currentSegmentLeadInStart;
         }
+
+        private readonly Dictionary<string, TdmsRawDataIndex> _channelIndices = new Dictionary<string, TdmsRawDataIndex>();
 
         private bool WriteMetaData(BinaryWriter writer, TdmsChannel[] channels, Dictionary<TdmsChannel, ulong> valueCounts)
         {
@@ -107,9 +114,62 @@ namespace TDMSSharp
 
             foreach (var obj in objectsToWrite)
             {
-                if (obj is TdmsFile file) TdmsWriter.WriteObjectMetaData(writer, "/", file.Properties);
-                else if (obj is TdmsChannelGroup group) TdmsWriter.WriteObjectMetaData(writer, group.Path, group.Properties);
-                else if (obj is TdmsChannel channel) TdmsWriter.WriteObjectMetaData(writer, channel.Path, channel.Properties, channel, valueCounts[channel]);
+                if (obj is TdmsFile file)
+                {
+                    TdmsWriter.WriteObjectMetaData(writer, "/", file.Properties);
+                }
+                else if (obj is TdmsChannelGroup group)
+                {
+                    TdmsWriter.WriteObjectMetaData(writer, group.Path, group.Properties);
+                }
+                else if (obj is TdmsChannel channel)
+                {
+                    TdmsWriter.WriteString(writer, channel.Path);
+
+                    var currentIndex = new TdmsRawDataIndex(channel.DataType, valueCounts[channel]);
+
+                    // Check if index matches previous segment
+                    if (_channelIndices.TryGetValue(channel.Path, out var previousIndex) &&
+                        previousIndex.DataType == currentIndex.DataType &&
+                        previousIndex.NumberOfValues == currentIndex.NumberOfValues)
+                    {
+                        // Write 0x00000000 to indicate unchanged index
+                        writer.Write((uint)0x00000000);
+                    }
+                    else
+                    {
+                        // Write full index
+                        using (var ms = new MemoryStream())
+                        using (var tempWriter = new BinaryWriter(ms))
+                        {
+                            tempWriter.Write((uint)channel.DataType);
+                            tempWriter.Write((uint)1); // Dimension
+                            tempWriter.Write(valueCounts[channel]);
+                            if (channel.DataType == TdsDataType.String && channel.Data != null)
+                            {
+                                var totalBytes = 0UL;
+                                foreach (var s in (string[])channel.Data)
+                                    totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
+                                tempWriter.Write(totalBytes);
+                            }
+                            writer.Write((uint)ms.Length);
+                            writer.Write(ms.ToArray());
+                        }
+
+                        // Update tracking
+                        _channelIndices[channel.Path] = currentIndex;
+                    }
+
+                    // Write properties
+                    writer.Write((uint)channel.Properties.Count);
+                    foreach (var prop in channel.Properties)
+                    {
+                        TdmsWriter.WriteString(writer, prop.Name);
+                        writer.Write((uint)prop.DataType);
+                        if (prop.Value != null)
+                            TdmsWriter.WriteValue(writer, prop.Value, prop.DataType);
+                    }
+                }
             }
 
             return newObjects;

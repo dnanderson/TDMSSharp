@@ -8,8 +8,8 @@ namespace TDMSSharp.Tests
         [Fact]
         public void WriteAndRead_IncrementalFile_ShouldMatch()
         {
-            // var path = Path.GetTempFileName();
-            var path = "test_incremental.tdms";
+            var path = Path.GetTempFileName();
+            // var path = "test_incremental.tdms";
             using (var fileStream = new TdmsFileStream(path))
             {
                 fileStream.AppendData("group1", "channel1", new[] { 1, 2, 3 });
