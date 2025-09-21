@@ -1,20 +1,46 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace TDMSSharp
 {
     public class TdmsChannel<T> : TdmsChannel
     {
-        private T[]? _data;
-        private const int GrowthFactor = 2;
-        private const int MinimumGrowth = 4;
+        private List<T[]> _dataChunks = new List<T[]>();
+        private T[]? _combinedData;
 
         public new T[]? Data
         {
-            get => _data;
+            get
+            {
+                if (_combinedData != null) return _combinedData;
+                if (_dataChunks.Count == 0) return null;
+                if (_dataChunks.Count == 1) return _dataChunks[0];
+
+                _combinedData = new T[NumberOfValues];
+                long offset = 0;
+                foreach (var chunk in _dataChunks)
+                {
+                    Array.Copy(chunk, 0, _combinedData, offset, chunk.Length);
+                    offset += chunk.Length;
+                }
+                _dataChunks.Clear(); // Free up memory
+                return _combinedData;
+            }
             set
             {
-                _data = value;
+                _combinedData = value;
+                _dataChunks.Clear();
+                if (value != null)
+                {
+                    _dataChunks.Add(value);
+                    NumberOfValues = (ulong)value.Length;
+                }
+                else
+                {
+                    NumberOfValues = 0;
+                }
                 base.Data = value;
             }
         }
@@ -24,92 +50,35 @@ namespace TDMSSharp
             DataType = TdsDataTypeProvider.GetDataType<T>();
         }
 
+        public void AddDataChunk(T[] chunk)
+        {
+            if (chunk == null || chunk.Length == 0) return;
+            
+            _dataChunks.Add(chunk);
+            _combinedData = null; // Invalidate combined data
+            base.Data = null;
+        }
+
         public void AppendData(T[] dataToAppend)
         {
-            if (dataToAppend == null || dataToAppend.Length == 0)
-                return;
+            if (dataToAppend == null || dataToAppend.Length == 0) return;
 
-            if (_data == null)
+            // Ensure data is combined before appending
+            if (_combinedData == null)
             {
-                _data = dataToAppend;
-                base.Data = _data;
+                _ = Data; // This triggers the combination
+            }
+
+            if (_combinedData == null)
+            {
+                Data = dataToAppend;
             }
             else
             {
-                // Use optimized array growth strategy
-                var currentLength = _data.Length;
-                var newLength = currentLength + dataToAppend.Length;
-                
-                // Rent from ArrayPool if beneficial for large arrays
-                if (newLength > 1024 && typeof(T).IsPrimitive)
-                {
-                    var pooledArray = ArrayPool<T>.Shared.Rent(newLength);
-                    Array.Copy(_data, 0, pooledArray, 0, currentLength);
-                    Array.Copy(dataToAppend, 0, pooledArray, currentLength, dataToAppend.Length);
-                    
-                    // Return old array to pool if it was rented
-                    if (currentLength > 1024)
-                    {
-                        ArrayPool<T>.Shared.Return(_data, clearArray: false);
-                    }
-                    
-                    _data = new T[newLength];
-                    Array.Copy(pooledArray, 0, _data, 0, newLength);
-                    ArrayPool<T>.Shared.Return(pooledArray, clearArray: false);
-                }
-                else
-                {
-                    var newData = new T[newLength];
-                    Array.Copy(_data, 0, newData, 0, currentLength);
-                    Array.Copy(dataToAppend, 0, newData, currentLength, dataToAppend.Length);
-                    _data = newData;
-                }
-                
-                base.Data = _data;
-            }
-            
-            NumberOfValues = (ulong)_data.Length;
-        }
-
-        /// <summary>
-        /// Optimized append for single values
-        /// </summary>
-        public void AppendValue(T value)
-        {
-            if (_data == null)
-            {
-                _data = new T[1] { value };
-                base.Data = _data;
-            }
-            else
-            {
-                var currentLength = _data.Length;
-                var newData = new T[currentLength + 1];
-                Array.Copy(_data, 0, newData, 0, currentLength);
-                newData[currentLength] = value;
-                _data = newData;
-                base.Data = _data;
-            }
-            
-            NumberOfValues = (ulong)_data.Length;
-        }
-
-        /// <summary>
-        /// Pre-allocate capacity for better performance when size is known
-        /// </summary>
-        public void SetCapacity(int capacity)
-        {
-            if (_data == null)
-            {
-                _data = new T[capacity];
-                base.Data = _data;
-            }
-            else if (_data.Length < capacity)
-            {
-                var newData = new T[capacity];
-                Array.Copy(_data, newData, _data.Length);
-                _data = newData;
-                base.Data = _data;
+                var newArray = new T[_combinedData.Length + dataToAppend.Length];
+                Array.Copy(_combinedData, newArray, _combinedData.Length);
+                Array.Copy(dataToAppend, 0, newArray, _combinedData.Length, dataToAppend.Length);
+                Data = newArray;
             }
         }
     }

@@ -73,94 +73,92 @@ namespace TDMSSharp
                         channel = group.Channels.FirstOrDefault(c => c.Path == path);
                     }
 
-                    var rawDataIndexLength = _reader.ReadUInt32();
+                    var indexIdentifier = _reader.ReadUInt32();
 
-                    if (rawDataIndexLength == 0xFFFFFFFF)
+                    switch (indexIdentifier)
                     {
-                        // No raw data
-                    }
-                    else if (rawDataIndexLength == 0x00000000)
-                    {
-                        // Reuse previous index
-                        if (_previousIndices.TryGetValue(path, out var previousIndex))
-                        {
-                            if (channel == null)
-                            {
-                                var dataType = previousIndex is TdmsDAQmxRawDataIndex daqmxPrev 
-                                    ? daqmxPrev.GetPrimaryDataType() 
-                                    : previousIndex.DataType;
-                                channel = CreateTypedChannel(path, dataType);
-                                file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
-                            }
+                        case 0xFFFFFFFF: // No raw data
+                            break;
 
-                            channel.DataType = previousIndex.DataType;
-                            channel.NumberOfValues += previousIndex.NumberOfValues;
-
-                            if (previousIndex.NumberOfValues > 0)
+                        case 0x00000000: // Reuse previous index
+                            if (_previousIndices.TryGetValue(path, out var previousIndex))
                             {
-                                channelsInSegment.Add(channel);
-                                valueCounts[channel] = previousIndex.NumberOfValues;
-                                
-                                if (previousIndex is TdmsDAQmxRawDataIndex daqmxIdx)
+                                if (channel == null)
                                 {
-                                    daqmxIndices[channel] = daqmxIdx;
+                                    var dataType = previousIndex is TdmsDAQmxRawDataIndex daqmxPrev
+                                        ? daqmxPrev.GetPrimaryDataType()
+                                        : previousIndex.DataType;
+                                    channel = CreateTypedChannel(path, dataType);
+                                    file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
+                                }
+
+                                channel.DataType = previousIndex.DataType;
+                                channel.NumberOfValues += previousIndex.NumberOfValues;
+
+                                if (previousIndex.NumberOfValues > 0)
+                                {
+                                    channelsInSegment.Add(channel);
+                                    valueCounts[channel] = previousIndex.NumberOfValues;
+
+                                    if (previousIndex is TdmsDAQmxRawDataIndex daqmxIdx)
+                                    {
+                                        daqmxIndices[channel] = daqmxIdx;
+                                    }
                                 }
                             }
-                        }
-                    }
-                    else if (rawDataIndexLength > 0)
-                    {
-                        var firstWord = _reader.ReadUInt32();
-                        
-                        // Check for DAQmx format (0x69120000 or 0x69130000)
-                        if (firstWord == 0x69120000 || firstWord == 0x69130000)
-                        {
-                            bool isDigitalLineScaler = (firstWord == 0x69130000);
-                            var daqmxIndex = ReadDAQmxRawDataIndex(isDigitalLineScaler);
-                            
-                            _previousIndices[path] = daqmxIndex;
-                            
-                            if (channel == null)
-                            {
-                                channel = CreateTypedChannel(path, daqmxIndex.GetPrimaryDataType());
-                                file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
-                            }
+                            break;
 
-                            channel.DataType = TdsDataType.DAQmxRawData;
-                            channel.NumberOfValues += daqmxIndex.NumberOfValues;
-                            
-                            if (daqmxIndex.NumberOfValues > 0)
+                        case 0x69120000: // DAQmx Format Changing Scaler
+                        case 0x69130000: // DAQmx Digital Line Scaler
                             {
-                                channelsInSegment.Add(channel);
-                                valueCounts[channel] = daqmxIndex.NumberOfValues;
-                                daqmxIndices[channel] = daqmxIndex;
+                                bool isDigitalLineScaler = (indexIdentifier == 0x69130000);
+                                var daqmxIndex = ReadDAQmxRawDataIndex(isDigitalLineScaler);
+
+                                _previousIndices[path] = daqmxIndex;
+
+                                if (channel == null)
+                                {
+                                    channel = CreateTypedChannel(path, daqmxIndex.GetPrimaryDataType());
+                                    file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
+                                }
+
+                                channel.DataType = TdsDataType.DAQmxRawData;
+                                channel.NumberOfValues += daqmxIndex.NumberOfValues;
+
+                                if (daqmxIndex.NumberOfValues > 0)
+                                {
+                                    channelsInSegment.Add(channel);
+                                    valueCounts[channel] = daqmxIndex.NumberOfValues;
+                                    daqmxIndices[channel] = daqmxIndex;
+                                }
                             }
-                        }
-                        else
-                        {
-                            // Standard raw data index
-                            var dataType = (TdsDataType)firstWord;
-                            _reader.ReadUInt32(); // Dimension
-                            var segmentValueCount = _reader.ReadUInt64();
+                            break;
 
-                            _previousIndices[path] = new TdmsRawDataIndex(dataType, segmentValueCount);
-
-                            if (channel == null)
+                        default: // Standard raw data index (indexIdentifier is the length)
                             {
-                                channel = CreateTypedChannel(path, dataType);
-                                file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
-                            }
+                                var dataType = (TdsDataType)_reader.ReadUInt32();
+                                _reader.ReadUInt32(); // Dimension
+                                var segmentValueCount = _reader.ReadUInt64();
 
-                            channel.DataType = dataType;
-                            channel.NumberOfValues += segmentValueCount;
-                            if (segmentValueCount > 0)
-                            {
-                                channelsInSegment.Add(channel);
-                                valueCounts[channel] = segmentValueCount;
+                                _previousIndices[path] = new TdmsRawDataIndex(dataType, segmentValueCount);
+
+                                if (channel == null)
+                                {
+                                    channel = CreateTypedChannel(path, dataType);
+                                    file.GetOrAddChannelGroup(pathParts[0]).Channels.Add(channel);
+                                }
+
+                                channel.DataType = dataType;
+                                channel.NumberOfValues += segmentValueCount;
+                                if (segmentValueCount > 0)
+                                {
+                                    channelsInSegment.Add(channel);
+                                    valueCounts[channel] = segmentValueCount;
+                                }
+                                if (dataType == TdsDataType.String)
+                                    _reader.ReadUInt64();
                             }
-                            if (dataType == TdsDataType.String) 
-                                _reader.ReadUInt64();
-                        }
+                            break;
                     }
 
                     tdmsObject = tdmsObject ?? channel;
@@ -304,17 +302,9 @@ namespace TDMSSharp
         private void ReadPrimitiveArrayOptimized<T>(TdmsChannel channel, ulong count) where T : struct
         {
             var typedChannel = (TdmsChannel<T>)channel;
-            var existingLength = typedChannel.Data?.Length ?? 0;
-            var newArray = new T[existingLength + (int)count];
-            
-            if (existingLength > 0)
-            {
-                Array.Copy(typedChannel.Data, newArray, existingLength);
-            }
+            var chunk = new T[(int)count];
+            var byteSpan = MemoryMarshal.AsBytes(chunk.AsSpan());
 
-            var span = newArray.AsSpan(existingLength, (int)count);
-            var byteSpan = MemoryMarshal.AsBytes(span);
-            
             int bytesRead = 0;
             while (bytesRead < byteSpan.Length)
             {
@@ -325,20 +315,20 @@ namespace TDMSSharp
                 bytesRead += read;
             }
 
-            typedChannel.Data = newArray;
+            typedChannel.AddDataChunk(chunk);
         }
 
         private void ReadChannelDataGeneric(TdmsChannel channel, ulong count)
         {
             var channelType = TdsDataTypeProvider.GetType(channel.DataType);
-            var readMethod = typeof(TdmsReader).GetMethod(nameof(ReadData), 
+            var readMethod = typeof(TdmsReader).GetMethod(nameof(ReadData),
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
                 .MakeGenericMethod(channelType);
-            
+
             var data = (Array)readMethod.Invoke(this, new object[] { count });
-            
+
             typeof(TdmsChannel<>).MakeGenericType(channelType)
-                .GetMethod("AppendData")
+                .GetMethod("AddDataChunk")
                 .Invoke(channel, new object[] { data });
         }
 
