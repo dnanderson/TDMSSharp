@@ -30,7 +30,7 @@ namespace TDMSSharp
             var group = _file.GetOrAddChannelGroup(groupName);
             var channelPath = $"{group.Path}/'{channelName.Replace("'", "''")}'";
             
-            TdmsChannel channel;
+            TdmsChannel? channel;
             
             // Use cached channel for better performance
             if (!_channelCache.TryGetValue(channelPath, out channel))
@@ -81,7 +81,7 @@ namespace TDMSSharp
                 var group = _file.GetOrAddChannelGroup(groupName);
                 var channelPath = $"{group.Path}/'{channelName.Replace("'", "''")}'";
                 
-                TdmsChannel channel;
+                TdmsChannel? channel;
                 if (!_channelCache.TryGetValue(channelPath, out channel))
                 {
                     channel = group.Channels.FirstOrDefault(c => c.Path == channelPath);
@@ -89,10 +89,14 @@ namespace TDMSSharp
                     if (channel == null)
                     {
                         var elementType = data.GetType().GetElementType();
+                        if (elementType == null)
+                            throw new InvalidOperationException("Could not determine element type of data array.");
                         var addChannelMethod = typeof(TdmsChannelGroup)
-                            .GetMethod(nameof(TdmsChannelGroup.AddChannel))
-                            .MakeGenericMethod(elementType);
-                        channel = (TdmsChannel)addChannelMethod.Invoke(group, new object[] { channelName });
+                            .GetMethod(nameof(TdmsChannelGroup.AddChannel));
+                        if (addChannelMethod == null)
+                            throw new InvalidOperationException("Could not find AddChannel method.");
+                        var genericAddChannelMethod = addChannelMethod.MakeGenericMethod(elementType);
+                        channel = (TdmsChannel)genericAddChannelMethod.Invoke(group, new object[] { channelName })!;
                     }
                     
                     _channelCache[channelPath] = channel;

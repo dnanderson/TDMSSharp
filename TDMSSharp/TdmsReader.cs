@@ -56,8 +56,8 @@ namespace TDMSSharp
                     var path = ReadStringOptimized();
                     var pathParts = ParsePathOptimized(path);
 
-                    object tdmsObject = null;
-                    TdmsChannel channel = null;
+                    object? tdmsObject = null;
+                    TdmsChannel? channel = null;
 
                     if (pathParts.Count == 0)
                     {
@@ -233,7 +233,9 @@ namespace TDMSSharp
         {
             var channelType = TdsDataTypeProvider.GetType(dataType);
             var genericChannelType = typeof(TdmsChannel<>).MakeGenericType(channelType);
-            return (TdmsChannel)Activator.CreateInstance(genericChannelType, path);
+            if (Activator.CreateInstance(genericChannelType, path) is not TdmsChannel channel)
+                throw new InvalidOperationException($"Could not create channel for data type {dataType}");
+            return channel;
         }
 
         private void ReadProperties(object tdmsObject)
@@ -322,14 +324,16 @@ namespace TDMSSharp
         {
             var channelType = TdsDataTypeProvider.GetType(channel.DataType);
             var readMethod = typeof(TdmsReader).GetMethod(nameof(ReadData),
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                .MakeGenericMethod(channelType);
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (readMethod == null) throw new InvalidOperationException("Could not find ReadData method.");
+            var genericReadMethod = readMethod.MakeGenericMethod(channelType);
 
-            var data = (Array)readMethod.Invoke(this, new object[] { count });
+            var data = (Array)genericReadMethod.Invoke(this, new object[] { count })!;
 
-            typeof(TdmsChannel<>).MakeGenericType(channelType)
-                .GetMethod("AddDataChunk")
-                .Invoke(channel, new object[] { data });
+            var addDataChunkMethod = typeof(TdmsChannel<>).MakeGenericType(channelType)
+                .GetMethod("AddDataChunk");
+            if (addDataChunkMethod == null) throw new InvalidOperationException("Could not find AddDataChunk method.");
+            addDataChunkMethod.Invoke(channel, new object[] { data });
         }
 
         private T[] ReadData<T>(ulong count)

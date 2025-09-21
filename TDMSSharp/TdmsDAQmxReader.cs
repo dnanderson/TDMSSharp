@@ -94,7 +94,7 @@ namespace TDMSSharp
             var existingLength = typedChannel.Data?.Length ?? 0;
             var newArray = new T[existingLength + valueCount];
             
-            if (existingLength > 0)
+            if (typedChannel.Data != null && existingLength > 0)
             {
                 Array.Copy(typedChannel.Data, newArray, existingLength);
             }
@@ -223,7 +223,7 @@ namespace TDMSSharp
             var existingLength = typedChannel.Data?.Length ?? 0;
             var newArray = new T[existingLength + valueCount];
             
-            if (existingLength > 0)
+            if (typedChannel.Data != null && existingLength > 0)
             {
                 Array.Copy(typedChannel.Data, newArray, existingLength);
             }
