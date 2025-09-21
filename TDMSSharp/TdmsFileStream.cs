@@ -14,16 +14,16 @@ namespace TDMSSharp
             _stream = new FileStream(path, FileMode.Create, FileAccess.Write);
             _file = new TdmsFile();
             _writer = new StreamingTdmsWriter(_stream, _file);
-            _writer.WriteHeader();
         }
 
         public void AppendData<T>(string groupName, string channelName, T[] data)
         {
             var group = _file.GetOrAddChannelGroup(groupName);
-            var channel = group.GetOrAddChannel(channelName);
-            if (channel.DataType == TdsDataType.Void)
+            var channelPath = $"{group.Path}/'{channelName.Replace("'", "''")}'";
+            var channel = group.Channels.FirstOrDefault(c => c.Path == channelPath);
+            if (channel == null)
             {
-                channel.DataType = TdsDataTypeProvider.GetDataType<T>();
+                channel = group.AddChannel<T>(channelName);
             }
             else if (channel.DataType != TdsDataTypeProvider.GetDataType<T>())
             {
