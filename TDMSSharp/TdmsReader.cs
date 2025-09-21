@@ -212,8 +212,8 @@ namespace TDMSSharp
                 case TdsDataType.String: return ReadString();
                 case TdsDataType.Boolean: return _reader.ReadBoolean();
                 case TdsDataType.TimeStamp:
-                    var seconds = _reader.ReadInt64();
                     var fractions = _reader.ReadUInt64();
+                    var seconds = _reader.ReadInt64();
                     var ticks = (long)(new BigInteger(fractions) * 10_000_000 / (BigInteger.One << 64));
                     return TdmsEpoch.AddSeconds(seconds).AddTicks(ticks);
                 default: throw new NotSupportedException($"Data type {dataType} not implemented in this snippet.");
