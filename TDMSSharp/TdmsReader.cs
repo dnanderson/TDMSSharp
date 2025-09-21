@@ -28,15 +28,34 @@ namespace TDMSSharp
 
         private void ReadSegment(TdmsFile file)
         {
+            long segmentStartPosition = _reader.BaseStream.Position;
+
             var leadIn = ReadLeadIn();
-            if (leadIn == null) return;
+            if (leadIn == null)
+            {
+                // Could not read a lead-in. Assume end of file or corruption.
+                // To prevent infinite loop, advance position to the end.
+                _reader.BaseStream.Position = _reader.BaseStream.Length;
+                return;
+            }
 
             if ((leadIn.Value.tocMask & (1 << 1)) != 0) // kTocMetaData
             {
                 ReadMetaData(file);
             }
 
-            // Raw data handling is still pending
+            // Advance stream to the start of the next segment.
+            // The lead-in is 28 bytes long. nextSegmentOffset is the length of the rest of the segment.
+            long nextSegmentPosition = segmentStartPosition + 28 + (long)leadIn.Value.nextSegmentOffset;
+            if (nextSegmentPosition > _reader.BaseStream.Length)
+            {
+                // If the offset points past the end of the file, assume it's the last segment.
+                _reader.BaseStream.Position = _reader.BaseStream.Length;
+            }
+            else
+            {
+                _reader.BaseStream.Position = nextSegmentPosition;
+            }
         }
 
         private (uint tocMask, uint version, ulong nextSegmentOffset, ulong rawDataOffset)? ReadLeadIn()
@@ -47,6 +66,9 @@ namespace TDMSSharp
             var tag = _reader.ReadBytes(4);
             if (Encoding.ASCII.GetString(tag) != "TDSm")
             {
+                // If we are not at the end of the stream but can't find the tag,
+                // it's possible the file is corrupt or we are out of sync.
+                // We will return null and let the caller handle it.
                 return null;
             }
 
