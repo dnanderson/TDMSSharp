@@ -28,8 +28,7 @@ namespace TDMSSharp
 
         public TdmsChannel<T> AddChannel<T>(string name)
         {
-            var channelName = name.Replace("'", "''");
-            var channelPath = $"{Path}/'{channelName}'";
+            var channelPath = $"{Path}/'{name}'";
             if (Channels.Any(c => c.Path == channelPath))
             {
                 throw new InvalidOperationException($"A channel with the name '{name}' already exists in this group.");

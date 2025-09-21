@@ -1,3 +1,5 @@
+using System;
+
 namespace TDMSSharp
 {
     public class TdmsChannel<T> : TdmsChannel

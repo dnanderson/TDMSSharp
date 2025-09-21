@@ -15,7 +15,7 @@ namespace TDMSSharp
 
         public TdmsChannelGroup GetOrAddChannelGroup(string name)
         {
-            var path = $"/'{name.Replace("'", "''")}'";
+            var path = $"/'{name}'";
             var group = ChannelGroups.FirstOrDefault(g => g.Path == path);
             if (group == null)
             {
