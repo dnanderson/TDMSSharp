@@ -199,8 +199,8 @@ namespace TDMSSharp
                     var timespan = timestamp.ToUniversalTime() - TdmsEpoch;
                     long seconds = (long)timespan.TotalSeconds;
                     var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) * (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
-                    writer.Write(fractions);
                     writer.Write(seconds);
+                    writer.Write(fractions);
                     break;
                 default:
                     throw new NotSupportedException($"Data type {dataType} is not supported for properties.");
