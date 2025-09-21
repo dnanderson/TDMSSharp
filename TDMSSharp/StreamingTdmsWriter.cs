@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace TDMSSharp
@@ -9,118 +10,128 @@ namespace TDMSSharp
     {
         private readonly BinaryWriter _writer;
         private readonly TdmsFile _file;
-        private long _nextSegmentOffset = 0;
-        private long _currentSegmentOffset = 0;
+        private long _previousSegmentLeadInStart = -1;
         private readonly HashSet<string> _writtenObjects = new HashSet<string>();
 
         public StreamingTdmsWriter(Stream stream, TdmsFile file)
         {
-            _writer = new BinaryWriter(stream, Encoding.UTF8, false);
+            _writer = new BinaryWriter(stream, Encoding.UTF8, true);
             _file = file;
-        }
-
-        public void WriteHeader()
-        {
-            _writer.Write(Encoding.ASCII.GetBytes("TDSm"));
-            _writer.Write((uint)0); // ToC mask, will be updated
-            _writer.Write((uint)4713); // Version
-            _writer.Write((ulong)0); // Next segment offset, will be updated
-            _writer.Write((ulong)0); // Raw data offset, will be updated
-        }
-
-        public void WriteSegment<T>(TdmsChannel channel, T[] data)
-        {
-            var channels = new[] { channel };
-            var dataArrays = new object[] { data };
-            WriteSegment(channels, dataArrays);
         }
 
         public void WriteSegment(TdmsChannel[] channels, object[] dataArrays)
         {
-            _currentSegmentOffset = _writer.BaseStream.Position;
-            if (_currentSegmentOffset > 28)
+            long currentSegmentLeadInStart = _writer.BaseStream.Position;
+
+            var valueCounts = new Dictionary<TdmsChannel, ulong>();
+            for (int i = 0; i < channels.Length; i++)
             {
-                var previousSegmentLeadIn = _currentSegmentOffset - _nextSegmentOffset;
-                _writer.BaseStream.Seek(_currentSegmentOffset - previousSegmentLeadIn + 12, SeekOrigin.Begin);
-                _writer.Write((ulong)_nextSegmentOffset);
-                _writer.BaseStream.Seek(_currentSegmentOffset, SeekOrigin.Begin);
+                var data = (Array)dataArrays[i];
+                valueCounts[channels[i]] = (ulong)data.Length;
             }
 
-            _writer.BaseStream.Seek(28, SeekOrigin.Current);
+            // Write metadata and raw data to a temporary stream to calculate their size
+            using var segmentStream = new MemoryStream();
+            using var segmentWriter = new BinaryWriter(segmentStream);
 
-            long metaDataStart = _writer.BaseStream.Position;
-            WriteMetaData(channels);
-            long metaDataEnd = _writer.BaseStream.Position;
-            long metaDataLength = metaDataEnd - metaDataStart;
+            var newObjects = WriteMetaData(segmentWriter, channels, valueCounts);
+            long metaDataLength = segmentStream.Position;
 
-            long rawDataStart = _writer.BaseStream.Position;
             for (int i = 0; i < channels.Length; i++)
             {
                 var channel = channels[i];
                 var data = (Array)dataArrays[i];
                 channel.NumberOfValues += (ulong)data.Length;
-                TdmsWriter.WriteRawData(_writer, data);
+                TdmsWriter.WriteRawData(segmentWriter, data);
             }
-            long rawDataEnd = _writer.BaseStream.Position;
-            long rawDataLength = rawDataEnd - rawDataStart;
+            long rawDataLength = segmentStream.Position - metaDataLength;
 
-            _nextSegmentOffset = metaDataLength + rawDataLength;
+            // Now that we have the lengths, update the previous segment to point to this one
+            if (_previousSegmentLeadInStart != -1)
+            {
+                long returnPos = _writer.BaseStream.Position;
+                _writer.BaseStream.Seek(_previousSegmentLeadInStart + 12, SeekOrigin.Begin);
+                _writer.Write((ulong)(currentSegmentLeadInStart - (_previousSegmentLeadInStart + 28)));
+                _writer.BaseStream.Seek(returnPos, SeekOrigin.Begin);
+            }
 
-            _writer.BaseStream.Seek(_currentSegmentOffset, SeekOrigin.Begin);
-
-            uint tocMask = 0;
-            tocMask |= (1 << 1); // kTocMetaData
-            if (rawDataLength > 0) tocMask |= (1 << 3); // kTocRawData
-            if (metaDataLength > 4) tocMask |= (1 << 2); // kTocNewObjList
+            // Write the new segment's lead-in
+            uint tocMask = (1 << 1); // Meta data is always written
+            if (newObjects) tocMask |= (1 << 2); // New object list
+            if (rawDataLength > 0) tocMask |= (1 << 3); // Raw data
 
             _writer.Write(Encoding.ASCII.GetBytes("TDSm"));
             _writer.Write(tocMask);
             _writer.Write((uint)4713); // Version
-            _writer.Write((ulong)_nextSegmentOffset);
-            _writer.Write((ulong)metaDataLength); // Raw data offset
+            _writer.Write((ulong)0); // Next segment offset (will be updated by next segment or on close)
+            _writer.Write((ulong)metaDataLength); // Raw data offset is the length of metadata
 
-            _writer.BaseStream.Seek(0, SeekOrigin.End);
+            // Write the actual segment data
+            _writer.Write(segmentStream.ToArray());
+            _writer.Flush();
+
+            _previousSegmentLeadInStart = currentSegmentLeadInStart;
         }
 
-        private void WriteMetaData(TdmsChannel[] channels)
+        private bool WriteMetaData(BinaryWriter writer, TdmsChannel[] channels, Dictionary<TdmsChannel, ulong> valueCounts)
         {
-            var objects = new List<object>();
+            var objectsToWrite = new List<object>();
+            bool newObjects = false;
             if (_writtenObjects.Count == 0)
             {
-                objects.Add(_file);
+                objectsToWrite.Add(_file);
                 _writtenObjects.Add("/");
             }
 
             foreach (var channel in channels)
             {
-                var groupPath = Path.GetDirectoryName(channel.Path);
-                if (groupPath == null) continue;
-                groupPath = groupPath.Replace("\\", "/");
+                var groupName = GetGroupName(channel.Path);
+                var groupPath = $"/'{groupName}'";
+
                 if (!_writtenObjects.Contains(groupPath))
                 {
-                    var group = _file.GetOrAddChannelGroup(groupPath);
-                    objects.Add(group);
+                    var group = _file.GetOrAddChannelGroup(groupName);
+                    objectsToWrite.Add(group);
                     _writtenObjects.Add(groupPath);
+                    newObjects = true;
                 }
                 if (!_writtenObjects.Contains(channel.Path))
                 {
-                    objects.Add(channel);
+                    newObjects = true;
                     _writtenObjects.Add(channel.Path);
                 }
+                objectsToWrite.Add(channel);
             }
 
-            _writer.Write((uint)objects.Count);
+            writer.Write((uint)objectsToWrite.Count);
 
-            foreach (var obj in objects)
+            foreach (var obj in objectsToWrite)
             {
-                if (obj is TdmsFile file) TdmsWriter.WriteObjectMetaData(_writer, "/", file.Properties);
-                else if (obj is TdmsChannelGroup group) TdmsWriter.WriteObjectMetaData(_writer, group.Path, group.Properties);
-                else if (obj is TdmsChannel channel) TdmsWriter.WriteObjectMetaData(_writer, channel.Path, channel.Properties, channel);
+                if (obj is TdmsFile file) TdmsWriter.WriteObjectMetaData(writer, "/", file.Properties);
+                else if (obj is TdmsChannelGroup group) TdmsWriter.WriteObjectMetaData(writer, group.Path, group.Properties);
+                else if (obj is TdmsChannel channel) TdmsWriter.WriteObjectMetaData(writer, channel.Path, channel.Properties, channel, valueCounts[channel]);
             }
+
+            return newObjects;
+        }
+
+        private string GetGroupName(string channelPath)
+        {
+            // Path is /'group'/'channel'
+            var parts = channelPath.Split(new[] { "'/'" }, StringSplitOptions.None);
+            if (parts.Length < 2) throw new ArgumentException("Invalid channel path", nameof(channelPath));
+            return parts[0].TrimStart('/').Trim('\'');
         }
 
         public void Dispose()
         {
+            if (_previousSegmentLeadInStart != -1)
+            {
+                long totalLength = _writer.BaseStream.Position;
+                long lastSegmentDataLength = totalLength - (_previousSegmentLeadInStart + 28);
+                _writer.BaseStream.Seek(_previousSegmentLeadInStart + 12, SeekOrigin.Begin);
+                _writer.Write(lastSegmentDataLength);
+            }
             _writer?.Dispose();
         }
     }

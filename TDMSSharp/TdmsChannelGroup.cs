@@ -15,17 +15,6 @@ namespace TDMSSharp
             Path = path;
         }
 
-        public TdmsChannel GetOrAddChannel(string path)
-        {
-            var channel = Channels.FirstOrDefault(c => c.Path == path);
-            if (channel == null)
-            {
-                channel = new TdmsChannel(path);
-                Channels.Add(channel);
-            }
-            return channel;
-        }
-
         public TdmsChannel<T> AddChannel<T>(string name)
         {
             var channelName = name.Replace("'", "''");

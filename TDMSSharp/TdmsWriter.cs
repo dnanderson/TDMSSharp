@@ -78,18 +78,20 @@ namespace TDMSSharp
             }
         }
 
-        internal static void WriteObjectMetaData(BinaryWriter writer, string path, IList<TdmsProperty> properties, TdmsChannel? channel = null)
+        internal static void WriteObjectMetaData(BinaryWriter writer, string path, IList<TdmsProperty> properties, TdmsChannel? channel = null, ulong? valuesCount = null)
         {
             WriteString(writer, path);
 
-            if (channel != null && channel.NumberOfValues > 0)
+            var numValues = valuesCount ?? channel?.NumberOfValues ?? 0;
+
+            if (channel != null && numValues > 0)
             {
                 using (var ms = new MemoryStream())
                 using (var tempWriter = new BinaryWriter(ms))
                 {
                     tempWriter.Write((uint)channel.DataType);
                     tempWriter.Write((uint)1); // Dimension
-                    tempWriter.Write(channel.NumberOfValues);
+                    tempWriter.Write(numValues);
                     if (channel.DataType == TdsDataType.String && channel.Data != null)
                     {
                         var totalBytes = 0UL;
