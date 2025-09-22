@@ -35,7 +35,7 @@ with TdmsWriter(FILE_PATH) as writer:
 
     # -- Channel 1.1: A simple counter
     # Generate some data for the first channel
-    counter_data = np.arange(0, 100, dtype=np.int32)
+    counter_data = np.arange(0, 1000, dtype=np.int32)
     channel1_1 = ChannelObject(
         group1_name,
         "Counter",
@@ -49,7 +49,7 @@ with TdmsWriter(FILE_PATH) as writer:
     )
 
     # -- Channel 1.2: Random floating-point data
-    random_data = np.random.rand(100).astype(np.float64) * 10
+    random_data = np.random.rand(1000).astype(np.float64) * 10
     channel1_2 = ChannelObject(
         group1_name,
         "Random",
@@ -70,7 +70,7 @@ with TdmsWriter(FILE_PATH) as writer:
     group2 = GroupObject(group2_name, properties=group2_properties)
 
     # -- Channel 2.1: A sine wave
-    time_data = np.linspace(0, 2 * np.pi, 100)
+    time_data = np.linspace(0, 2 * np.pi, 1000)
     sine_data = 5 * np.sin(time_data)
     channel2_1 = ChannelObject(
         group2_name,

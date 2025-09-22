@@ -12,7 +12,14 @@ namespace TDMSSharp
 
         public new T[]? Data
         {
-            get => _combinedData;
+            get
+            {
+                if (_combinedData == null && _dataChunks.Count > 0)
+                {
+                    CombineChunks();
+                }
+                return _combinedData;
+            }
             set
             {
                 _combinedData = value;
@@ -41,9 +48,6 @@ namespace TDMSSharp
 
             _dataChunks.Add(chunk);
             _combinedData = null; // Mark as needing combination
-            
-            // Eagerly combine and update base.Data
-            CombineChunks();
         }
 
         private void CombineChunks()
@@ -62,7 +66,13 @@ namespace TDMSSharp
                 return;
             }
 
-            _combinedData = new T[NumberOfValues];
+            long totalLength = 0;
+            foreach (var chunk in _dataChunks)
+            {
+                totalLength += chunk.Length;
+            }
+            
+            _combinedData = new T[totalLength];
             long offset = 0;
             foreach (var chunk in _dataChunks)
             {
