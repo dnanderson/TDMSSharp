@@ -14,9 +14,17 @@ namespace TDMSSharp
         {
             get
             {
-                if (_combinedData != null) return _combinedData;
+                if (_combinedData != null)
+                {
+                    base.Data = _combinedData; // Update base class
+                    return _combinedData;
+                }
                 if (_dataChunks.Count == 0) return null;
-                if (_dataChunks.Count == 1) return _dataChunks[0];
+                if (_dataChunks.Count == 1)
+                {
+                    base.Data = _dataChunks[0]; // Update base class
+                    return _dataChunks[0];
+                }
 
                 _combinedData = new T[NumberOfValues];
                 long offset = 0;
@@ -25,7 +33,8 @@ namespace TDMSSharp
                     Array.Copy(chunk, 0, _combinedData, offset, chunk.Length);
                     offset += chunk.Length;
                 }
-                _dataChunks.Clear(); // Free up memory
+                _dataChunks.Clear();
+                base.Data = _combinedData; // Update base class
                 return _combinedData;
             }
             set
@@ -41,7 +50,7 @@ namespace TDMSSharp
                 {
                     NumberOfValues = 0;
                 }
-                base.Data = value;
+                base.Data = value; // Update base class
             }
         }
 
@@ -53,7 +62,7 @@ namespace TDMSSharp
         public void AddDataChunk(T[] chunk)
         {
             if (chunk == null || chunk.Length == 0) return;
-            
+
             _dataChunks.Add(chunk);
             _combinedData = null; // Invalidate combined data
             base.Data = null;

@@ -82,7 +82,7 @@ namespace TDMSReader
                         if (channel.Data is Array dataArray && dataArray.Length > 0)
                         {
                             Console.WriteLine("    - Sample Data:");
-                            int count = Math.Min(5, dataArray.Length); // Show up to 5 values
+                            int count = Math.Min(5, dataArray.Length);
                             for (int i = 0; i < count; i++)
                             {
                                 Console.WriteLine($"        [{i}]: {dataArray.GetValue(i)}");
