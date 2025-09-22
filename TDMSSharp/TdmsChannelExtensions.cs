@@ -18,16 +18,31 @@ namespace TDMSSharp
             if (channel.DataType != TdsDataTypeProvider.GetDataType<T>())
                 throw new InvalidCastException($"Channel data type {channel.DataType} does not match requested type {typeof(T).Name}");
 
-            // If data is already loaded, use it directly
-            if (channel.Data != null && channel.Data is T[] typedData)
+            T[]? dataArray = null;
+
+            // First, check the base Data property which might already be populated
+            if (channel.Data is T[] data)
+            {
+                dataArray = data;
+            }
+            // If that's null, check if it's a generic channel and access its Data property.
+            // This will trigger the chunk combination logic inside TdmsChannel<T>.
+            else if (channel is TdmsChannel<T> typedChannel)
+            {
+                dataArray = typedChannel.Data;
+            }
+
+            // If we now have data, create the view
+            if (dataArray != null)
             {
                 return new TdmsChannelView<T>(
                     channel,
-                    (start, count) => typedData.Skip((int)start).Take((int)count).ToArray(),
-                    typedData.Length
+                    (start, count) => dataArray.Skip((int)start).Take((int)count).ToArray(),
+                    dataArray.Length
                 );
             }
 
+            // If data is still null, then it's a true lazy-load scenario that this method doesn't support without more info.
             throw new InvalidOperationException("Channel data not loaded. Use lazy loading for view access.");
         }
 
@@ -44,7 +59,6 @@ namespace TDMSSharp
 
             return null;
         }
-
         /// <summary>
         /// Stream channel data in batches
         /// </summary>
