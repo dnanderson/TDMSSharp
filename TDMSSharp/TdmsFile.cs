@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace TDMSSharp
 {
-    public class TdmsFile
+    public partial class TdmsFile
     {
         public IList<TdmsProperty> Properties { get; } = new List<TdmsProperty>();
         public IList<TdmsChannelGroup> ChannelGroups { get; } = new List<TdmsChannelGroup>();
