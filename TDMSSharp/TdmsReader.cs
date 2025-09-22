@@ -241,21 +241,25 @@ namespace TDMSSharp
                             var (start, count) = _options.SampleRange.Value;
                             var currentTotal = channel.NumberOfValues;
 
-                            if (currentTotal >= start + count)
+                            if ((long)currentTotal >= start + count)
                             {
                                 // We've read enough samples for this channel
                                 channelSegmentInfo.ValueCount = 0;
                             }
-                            else if (currentTotal + channelSegmentInfo.ValueCount > start)
+                            else if ((long)(currentTotal + channelSegmentInfo.ValueCount) > start)
                             {
                                 // This segment contains samples we want
-                                var skipInSegment = Math.Max(0, start - currentTotal);
-                                var takeFromSegment = Math.Min(
-                                    channelSegmentInfo.ValueCount - (ulong)skipInSegment,
-                                    (ulong)count - Math.Max(0, currentTotal - start)
-                                );
+                                long skipInSegment = Math.Max(0, start - (long)currentTotal);
 
-                                channelSegmentInfo.DataPosition += skipInSegment * (ulong)GetElementSize(dataType);
+                                long samplesAcquiredSoFar = Math.Max(0, (long)currentTotal - start);
+                                long samplesStillToTake = count - samplesAcquiredSoFar;
+
+                                ulong takeFromSegment = (ulong)Math.Min((long)channelSegmentInfo.ValueCount - skipInSegment, samplesStillToTake);
+
+                                if (skipInSegment > 0)
+                                {
+                                    channelSegmentInfo.DataPosition += (long)((ulong)skipInSegment * (ulong)GetElementSize(channelSegmentInfo.DataType));
+                                }
                                 channelSegmentInfo.ValueCount = takeFromSegment;
                             }
                         }
