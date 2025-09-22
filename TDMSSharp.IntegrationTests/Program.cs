@@ -272,9 +272,9 @@ namespace TDMSReader
         {
             Console.WriteLine("5. ADVANCED CHANNEL OPERATIONS");
             Console.WriteLine("==============================");
-            
-            var tdmsFile = TdmsFile.Open(filePath);
-            var channel = tdmsFile.ChannelGroups.FirstOrDefault()?.Channels.FirstOrDefault();
+            var metaOptions = new TdmsReadOptions { LazyLoad = true };
+            var tdmsFile = TdmsFile.Open(filePath, metaOptions);
+            var channel = tdmsFile.ChannelGroups.LastOrDefault()?.Channels.LastOrDefault();
             
             if (channel == null || channel.NumberOfValues < 10)
             {
