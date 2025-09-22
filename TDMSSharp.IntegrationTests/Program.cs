@@ -79,7 +79,9 @@ namespace TDMSReader
                         }
 
                         // 4. Display a sample of the raw data from the channel
-                        if (channel.Data is Array dataArray && dataArray.Length > 0)
+                        // Use GetDataAsArray() method to access the data
+                        var dataArray = channel.GetDataAsArray();
+                        if (dataArray != null && dataArray.Length > 0)
                         {
                             Console.WriteLine("    - Sample Data:");
                             int count = Math.Min(5, dataArray.Length);

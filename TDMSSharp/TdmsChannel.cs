@@ -32,16 +32,10 @@ namespace TDMSSharp
             return null;
         }
 
-        // NEW: Get data as Array for generic access
+        // NEW: Get data as Array for generic access - now just a simple cast
         public Array? GetDataAsArray()
         {
-            var dataProperty = this.GetType().GetProperty("Data");
-            if (dataProperty != null)
-            {
-                var data = dataProperty.GetValue(this);
-                return data as Array;
-            }
-            return null;
+            return Data as Array;
         }
     }
 }

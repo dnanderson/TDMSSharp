@@ -12,31 +12,7 @@ namespace TDMSSharp
 
         public new T[]? Data
         {
-            get
-            {
-                if (_combinedData != null)
-                {
-                    base.Data = _combinedData; // Update base class
-                    return _combinedData;
-                }
-                if (_dataChunks.Count == 0) return null;
-                if (_dataChunks.Count == 1)
-                {
-                    base.Data = _dataChunks[0]; // Update base class
-                    return _dataChunks[0];
-                }
-
-                _combinedData = new T[NumberOfValues];
-                long offset = 0;
-                foreach (var chunk in _dataChunks)
-                {
-                    Array.Copy(chunk, 0, _combinedData, offset, chunk.Length);
-                    offset += chunk.Length;
-                }
-                _dataChunks.Clear();
-                base.Data = _combinedData; // Update base class
-                return _combinedData;
-            }
+            get => _combinedData;
             set
             {
                 _combinedData = value;
@@ -64,18 +40,47 @@ namespace TDMSSharp
             if (chunk == null || chunk.Length == 0) return;
 
             _dataChunks.Add(chunk);
-            _combinedData = null; // Invalidate combined data
-            base.Data = null;
+            _combinedData = null; // Mark as needing combination
+            
+            // Eagerly combine and update base.Data
+            CombineChunks();
+        }
+
+        private void CombineChunks()
+        {
+            if (_dataChunks.Count == 0)
+            {
+                _combinedData = null;
+                base.Data = null;
+                return;
+            }
+            
+            if (_dataChunks.Count == 1)
+            {
+                _combinedData = _dataChunks[0];
+                base.Data = _combinedData;
+                return;
+            }
+
+            _combinedData = new T[NumberOfValues];
+            long offset = 0;
+            foreach (var chunk in _dataChunks)
+            {
+                Array.Copy(chunk, 0, _combinedData, offset, chunk.Length);
+                offset += chunk.Length;
+            }
+            _dataChunks.Clear();
+            _dataChunks.Add(_combinedData);
+            base.Data = _combinedData;
         }
 
         public void AppendData(T[] dataToAppend)
         {
             if (dataToAppend == null || dataToAppend.Length == 0) return;
 
-            // Ensure data is combined before appending
-            if (_combinedData == null)
+            if (_combinedData == null && _dataChunks.Count > 0)
             {
-                _ = Data; // This triggers the combination
+                CombineChunks();
             }
 
             if (_combinedData == null)
