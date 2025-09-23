@@ -73,5 +73,36 @@ namespace TDMSSharp.Tests
             Assert.Equal("Channel_Property", channel1.Properties[0].Name);
             Assert.Equal("Channel_Value", channel1.Properties[0].Value);
         }
+
+        [Fact]
+        public void WriteAndRead_MetadataOnly_WithChannels_ShouldMatch()
+        {
+            var path = Path.GetTempFileName();
+            using (var fileStream = new TdmsFileStream(path))
+            {
+                fileStream.AddFileProperty("File_Property", "File_Value");
+                fileStream.AddGroupProperty("group1", "Group_Property", "Group_Value");
+                fileStream.CreateChannel<int>("group1", "channel1");
+                fileStream.AddChannelProperty("group1", "channel1", "Channel_Property", "Channel_Value");
+            }
+
+            var file = TdmsFile.Open(path);
+
+            Assert.Single(file.Properties);
+            Assert.Equal("File_Property", file.Properties[0].Name);
+            Assert.Equal("File_Value", file.Properties[0].Value);
+
+            Assert.Single(file.ChannelGroups);
+            var group1 = file.ChannelGroups[0];
+            Assert.Single(group1.Properties);
+            Assert.Equal("Group_Property", group1.Properties[0].Name);
+            Assert.Equal("Group_Value", group1.Properties[0].Value);
+
+            Assert.Single(group1.Channels);
+            var channel1 = group1.Channels[0];
+            Assert.Single(channel1.Properties);
+            Assert.Equal("Channel_Property", channel1.Properties[0].Name);
+            Assert.Equal("Channel_Value", channel1.Properties[0].Value);
+        }
     }
 }

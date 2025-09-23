@@ -184,68 +184,7 @@ namespace TDMSSharp
             _writer.Write(new byte[28]);
 
             long metaDataStart = _writer.BaseStream.Position;
-
-            var changedObjects = new List<object>();
-
-            var lastWrittenFileProps = _lastWrittenState.Properties.ToDictionary(p => p.Name);
-            var currentFileProps = _file.Properties.Where(p => !lastWrittenFileProps.ContainsKey(p.Name) || !p.Equals(lastWrittenFileProps[p.Name])).ToList();
-            if (currentFileProps.Any())
-            {
-                var file = new TdmsFile();
-                foreach(var p in currentFileProps) file.Properties.Add(p);
-                changedObjects.Add(file);
-            }
-
-            var lastWrittenGroups = _lastWrittenState.ChannelGroups.ToDictionary(g => g.Path);
-            foreach (var group in _file.ChannelGroups)
-            {
-                if (!lastWrittenGroups.TryGetValue(group.Path, out var lastWrittenGroup))
-                {
-                    changedObjects.Add(group);
-                }
-                else
-                {
-                    var lastWrittenGroupProps = lastWrittenGroup.Properties.ToDictionary(p => p.Name);
-                    var currentGroupProps = group.Properties.Where(p => !lastWrittenGroupProps.ContainsKey(p.Name) || !p.Equals(lastWrittenGroupProps[p.Name])).ToList();
-                    if (currentGroupProps.Any())
-                    {
-                        var newGroup = new TdmsChannelGroup(group.Path);
-                        foreach(var p in currentGroupProps) newGroup.Properties.Add(p);
-                        changedObjects.Add(newGroup);
-                    }
-
-                    var lastWrittenChannels = lastWrittenGroup.Channels.ToDictionary(c => c.Path);
-                    foreach (var channel in group.Channels)
-                    {
-                        if (!lastWrittenChannels.TryGetValue(channel.Path, out var lastWrittenChannel))
-                        {
-                            changedObjects.Add(channel);
-                        }
-                        else
-                        {
-                            var lastWrittenChannelProps = lastWrittenChannel.Properties.ToDictionary(p => p.Name);
-                            var currentChannelProps = channel.Properties.Where(p => !lastWrittenChannelProps.ContainsKey(p.Name) || !p.Equals(lastWrittenChannelProps[p.Name])).ToList();
-                            if (currentChannelProps.Any())
-                            {
-                                var newChannel = new TdmsChannel(channel.Path) { DataType = channel.DataType };
-                                foreach(var p in currentChannelProps) newChannel.Properties.Add(p);
-                                changedObjects.Add(newChannel);
-                            }
-                        }
-                    }
-                }
-            }
-
-            _writer.Write((uint)changedObjects.Count);
-            foreach(var o in changedObjects)
-            {
-                if (o is TdmsFile f) TdmsWriter.WriteObjectMetaData(_writer, "/", f.Properties);
-                else if (o is TdmsChannelGroup g) TdmsWriter.WriteObjectMetaData(_writer, g.Path, g.Properties);
-                else if (o is TdmsChannel c) TdmsWriter.WriteObjectMetaData(_writer, c.Path, c.Properties, c, 0);
-            }
-
-            _lastWrittenState = _file.DeepClone();
-
+            WriteAllMetaData(_writer);
             long metaDataLength = _writer.BaseStream.Position - metaDataStart;
 
             // Update previous segment's next offset
@@ -274,11 +213,7 @@ namespace TDMSSharp
 
             _previousSegmentLeadInStart = currentSegmentLeadInStart;
             MetadataDirty = false;
-            _writtenObjects.Clear();
-            _writtenObjects.Add("/");
-            foreach(var g in _file.ChannelGroups) _writtenObjects.Add(g.Path);
-            foreach(var g in _file.ChannelGroups)
-                foreach(var c in g.Channels) _writtenObjects.Add(c.Path);
+            _lastWrittenState = _file.DeepClone();
         }
 
         private bool WriteMetaData(BinaryWriter writer, TdmsChannel[] channels, Dictionary<TdmsChannel, ulong> valueCounts)
@@ -373,6 +308,10 @@ namespace TDMSSharp
         /// </summary>
         public void Dispose()
         {
+            if (MetadataDirty)
+            {
+                WriteMetadataSegment();
+            }
             if (_previousSegmentLeadInStart != -1)
             {
                 long totalLength = _writer.BaseStream.Position;
