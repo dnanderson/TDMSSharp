@@ -10,6 +10,9 @@ using System.Text;
 
 namespace TDMSSharp
 {
+    /// <summary>
+    /// Provides a low-level reader for TDMS files.
+    /// </summary>
     public class TdmsReader
     {
         private readonly BinaryReader _reader;
@@ -18,18 +21,31 @@ namespace TDMSSharp
         private readonly Dictionary<string, TdmsRawDataIndex> _previousIndices = new Dictionary<string, TdmsRawDataIndex>();
         private readonly TdmsReadOptions _options;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TdmsReader"/> class.
+        /// </summary>
+        /// <param name="stream">The stream to read the TDMS file from.</param>
         public TdmsReader(Stream stream)
         {
             _reader = new BinaryReader(stream, Encoding.UTF8, true);
             _options = new TdmsReadOptions();
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TdmsReader"/> class.
+        /// </summary>
+        /// <param name="stream">The stream to read the TDMS file from.</param>
+        /// <param name="options">The options for reading the file.</param>
         public TdmsReader(Stream stream, TdmsReadOptions? options)
         {
             _reader = new BinaryReader(stream, Encoding.UTF8, true);
             _options = options ?? new TdmsReadOptions();
         }
 
+        /// <summary>
+        /// Reads the TDMS file from the stream and returns a <see cref="TdmsFile"/> object.
+        /// </summary>
+        /// <returns>A <see cref="TdmsFile"/> object representing the contents of the TDMS file.</returns>
         public TdmsFile ReadFile()
         {
             var file = new TdmsFile();

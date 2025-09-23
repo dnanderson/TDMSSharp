@@ -7,13 +7,34 @@ namespace TDMSSharp
     /// </summary>
     public class TdmsDAQmxScaler
     {
+        /// <summary>
+        /// Gets or sets the data type of the scaled data.
+        /// </summary>
         public TdsDataType DataType { get; set; }
+
+        /// <summary>
+        /// Gets or sets the index of the raw buffer this scaler applies to.
+        /// </summary>
         public uint RawBufferIndex { get; set; }
+
+        /// <summary>
+        /// Gets or sets the offset in bytes within the stride where this scaler's data begins.
+        /// </summary>
         public uint RawByteOffsetWithinStride { get; set; }
+
+        /// <summary>
+        /// Gets or sets a bitmap that describes the sample format.
+        /// </summary>
         public uint SampleFormatBitmap { get; set; }
+
+        /// <summary>
+        /// Gets or sets the ID of the scale to use.
+        /// </summary>
         public uint ScaleId { get; set; }
 
-        // Derived properties for easier processing
+        /// <summary>
+        /// Gets the size in bytes of the data type.
+        /// </summary>
         public int ByteSize => GetByteSize(DataType);
         
         private static int GetByteSize(TdsDataType dataType)
@@ -34,10 +55,28 @@ namespace TDMSSharp
     /// </summary>
     public class TdmsDAQmxRawDataIndex : TdmsRawDataIndex
     {
+        /// <summary>
+        /// Gets or sets a value indicating whether this is a digital line scaler.
+        /// </summary>
         public bool IsDigitalLineScaler { get; set; }
+
+        /// <summary>
+        /// Gets or sets the array of scalers for this raw data index.
+        /// </summary>
         public TdmsDAQmxScaler[] Scalers { get; set; }
+
+        /// <summary>
+        /// Gets or sets the array of raw data widths for this raw data index.
+        /// </summary>
         public uint[] RawDataWidths { get; set; }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TdmsDAQmxRawDataIndex"/> class.
+        /// </summary>
+        /// <param name="numberOfValues">The number of values in the raw data.</param>
+        /// <param name="scalers">The array of scalers.</param>
+        /// <param name="rawDataWidths">The array of raw data widths.</param>
+        /// <param name="isDigitalLineScaler">A value indicating whether this is a digital line scaler.</param>
         public TdmsDAQmxRawDataIndex(ulong numberOfValues, TdmsDAQmxScaler[] scalers, uint[] rawDataWidths, bool isDigitalLineScaler = false)
             : base(TdsDataType.DAQmxRawData, numberOfValues)
         {

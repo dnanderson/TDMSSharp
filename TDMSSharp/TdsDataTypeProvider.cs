@@ -2,8 +2,17 @@ using System;
 
 namespace TDMSSharp
 {
+    /// <summary>
+    /// Provides methods for converting between .NET types and <see cref="TdsDataType"/> enum values.
+    /// </summary>
     public static class TdsDataTypeProvider
     {
+        /// <summary>
+        /// Gets the <see cref="TdsDataType"/> that corresponds to the specified .NET type.
+        /// </summary>
+        /// <typeparam name="T">The .NET type to get the <see cref="TdsDataType"/> for.</typeparam>
+        /// <returns>The corresponding <see cref="TdsDataType"/>.</returns>
+        /// <exception cref="NotSupportedException">Thrown when the specified type is not a supported TDMS data type.</exception>
         public static TdsDataType GetDataType<T>()
         {
             var type = typeof(T);
@@ -23,6 +32,12 @@ namespace TDMSSharp
             throw new NotSupportedException($"The type {type.Name} is not a supported TDMS data type.");
         }
 
+        /// <summary>
+        /// Gets the .NET type that corresponds to the specified <see cref="TdsDataType"/>.
+        /// </summary>
+        /// <param name="dataType">The <see cref="TdsDataType"/> to get the .NET type for.</param>
+        /// <returns>The corresponding .NET type.</returns>
+        /// <exception cref="NotSupportedException">Thrown when the specified data type is not a supported TDMS data type.</exception>
         public static Type GetType(TdsDataType dataType)
         {
             switch (dataType)

@@ -11,8 +11,13 @@ namespace TDMSSharp
     public static class TdmsChannelExtensions
     {
         /// <summary>
-        /// Get a view of the channel data for efficient access
+        /// Creates a <see cref="TdmsChannelView{T}"/> for the channel, providing efficient, read-only access to the data.
         /// </summary>
+        /// <typeparam name="T">The data type of the channel.</typeparam>
+        /// <param name="channel">The channel to create a view for.</param>
+        /// <returns>A <see cref="TdmsChannelView{T}"/> for the channel.</returns>
+        /// <exception cref="InvalidCastException">Thrown when the channel's data type does not match the requested type.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the channel's data is not loaded.</exception>
         public static TdmsChannelView<T> AsView<T>(this TdmsChannel channel) where T : struct
         {
             if (channel.DataType != TdsDataTypeProvider.GetDataType<T>())
@@ -47,8 +52,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Get typed data with automatic casting
+        /// Gets the channel's data as a strongly-typed array. This method provides a convenient way to get the data with the correct type.
         /// </summary>
+        /// <typeparam name="T">The data type to cast to.</typeparam>
+        /// <param name="channel">The channel.</param>
+        /// <returns>The data as a strongly-typed array, or <c>null</c> if the data cannot be cast.</returns>
         public static T[]? GetTypedData<T>(this TdmsChannel channel) where T : struct
         {
             if (channel is TdmsChannel<T> typedChannel)
@@ -60,8 +68,12 @@ namespace TDMSSharp
             return null;
         }
         /// <summary>
-        /// Stream channel data in batches
+        /// Streams the channel's data in batches, which is useful for processing large datasets without loading the entire dataset into memory.
         /// </summary>
+        /// <typeparam name="T">The data type of the channel.</typeparam>
+        /// <param name="channel">The channel to stream data from.</param>
+        /// <param name="batchSize">The size of each batch.</param>
+        /// <returns>An <see cref="IAsyncEnumerable{T[]}"/> that yields batches of data.</returns>
         public static IAsyncEnumerable<T[]> StreamData<T>(this TdmsChannel channel, int batchSize = 65536) where T : struct
         {
             return StreamDataImpl<T>(channel, batchSize);
@@ -85,8 +97,14 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Apply a transformation to channel data
+        /// Applies a transformation to each element of the channel's data and returns a new channel with the transformed data.
         /// </summary>
+        /// <typeparam name="TSource">The source data type.</typeparam>
+        /// <typeparam name="TResult">The result data type.</typeparam>
+        /// <param name="channel">The source channel.</param>
+        /// <param name="transformer">The transformation function to apply to each element.</param>
+        /// <returns>A new <see cref="TdmsChannel{TResult}"/> with the transformed data.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the source channel has no data.</exception>
         public static TdmsChannel<TResult> Transform<TSource, TResult>(
             this TdmsChannel channel,
             Func<TSource, TResult> transformer)
@@ -110,8 +128,13 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Filter channel data
+        /// Filters the channel's data based on a predicate and returns a new channel with the filtered data.
         /// </summary>
+        /// <typeparam name="T">The data type of the channel.</typeparam>
+        /// <param name="channel">The source channel.</param>
+        /// <param name="predicate">The function to test each element for a condition.</param>
+        /// <returns>A new <see cref="TdmsChannel{T}"/> with the filtered data.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the source channel has no data.</exception>
         public static TdmsChannel<T> Where<T>(this TdmsChannel channel, Func<T, bool> predicate) where T : struct
         {
             var sourceData = channel.GetTypedData<T>();
@@ -128,8 +151,13 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Compute windowed statistics
+        /// Computes statistics for the channel's data over a sliding window.
         /// </summary>
+        /// <typeparam name="T">The data type of the channel. Must be convertible to <see cref="double"/>.</typeparam>
+        /// <param name="channel">The channel to analyze.</param>
+        /// <param name="windowSize">The size of the sliding window.</param>
+        /// <param name="stepSize">The number of data points to slide the window forward. If 0, it defaults to the window size.</param>
+        /// <returns>An <see cref="IEnumerable{ChannelStatistics}"/> containing the statistics for each window.</returns>
         public static IEnumerable<ChannelStatistics> WindowedStatistics<T>(
             this TdmsChannel channel,
             int windowSize,
@@ -199,8 +227,15 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Resample channel data to a new sample rate
+        /// Resamples the channel's data to a new sample rate using the specified interpolation method.
         /// </summary>
+        /// <typeparam name="T">The data type of the channel. Must be convertible to <see cref="double"/> for linear interpolation.</typeparam>
+        /// <param name="channel">The channel to resample.</param>
+        /// <param name="originalSampleRate">The original sample rate of the data.</param>
+        /// <param name="targetSampleRate">The target sample rate to resample to.</param>
+        /// <param name="interpolation">The interpolation method to use.</param>
+        /// <returns>A new <see cref="TdmsChannel{T}"/> with the resampled data.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the source channel has no data.</exception>
         public static TdmsChannel<T> Resample<T>(
             this TdmsChannel channel,
             double originalSampleRate,
@@ -264,8 +299,14 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Apply a sliding window function
+        /// Applies a sliding window function to the channel's data.
         /// </summary>
+        /// <typeparam name="T">The data type of the channel. Must be convertible to <see cref="double"/>.</typeparam>
+        /// <param name="channel">The channel to apply the window to.</param>
+        /// <param name="window">The window function to use.</param>
+        /// <param name="windowSize">The size of the window.</param>
+        /// <returns>A new array with the window function applied.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the source channel has no data.</exception>
         public static T[] ApplyWindow<T>(
             this TdmsChannel channel,
             WindowFunction window,
@@ -353,17 +394,41 @@ namespace TDMSSharp
         }
     }
 
+    /// <summary>
+    /// Specifies the interpolation method for resampling.
+    /// </summary>
     public enum InterpolationType
     {
+        /// <summary>
+        /// Uses the value of the nearest data point.
+        /// </summary>
         NearestNeighbor,
+        /// <summary>
+        /// Uses linear interpolation between two data points.
+        /// </summary>
         Linear
     }
 
+    /// <summary>
+    /// Specifies the window function to apply to data.
+    /// </summary>
     public enum WindowFunction
     {
+        /// <summary>
+        /// A rectangular window (no weighting).
+        /// </summary>
         Rectangular,
+        /// <summary>
+        /// A Hamming window.
+        /// </summary>
         Hamming,
+        /// <summary>
+        /// A Hanning window.
+        /// </summary>
         Hanning,
+        /// <summary>
+        /// A Blackman window.
+        /// </summary>
         Blackman
     }
 }

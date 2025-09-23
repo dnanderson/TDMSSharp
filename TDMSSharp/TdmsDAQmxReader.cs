@@ -11,8 +11,11 @@ namespace TDMSSharp
     public static class TdmsDAQmxReader
     {
         /// <summary>
-        /// Read DAQmx raw data and extract values based on scalers
+        /// Reads DAQmx raw data from a <see cref="BinaryReader"/> and populates the specified <see cref="TdmsChannel"/>.
         /// </summary>
+        /// <param name="reader">The binary reader to read data from.</param>
+        /// <param name="channel">The channel to populate with data.</param>
+        /// <param name="daqmxIndex">The DAQmx raw data index that describes the data layout.</param>
         public static void ReadDAQmxData(BinaryReader reader, TdmsChannel channel, TdmsDAQmxRawDataIndex daqmxIndex)
         {
             if (daqmxIndex.NumberOfValues == 0 || daqmxIndex.Scalers.Length == 0)

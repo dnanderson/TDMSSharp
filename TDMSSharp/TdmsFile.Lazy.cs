@@ -55,14 +55,28 @@ namespace TDMSSharp
         /// </summary>
         public class ChannelDataInfo
         {
+            /// <summary>
+            /// Gets the list of data segments for the channel.
+            /// </summary>
             public List<(long Position, long Count, TdsDataType DataType)> Segments { get; } = new();
+
+            /// <summary>
+            /// Gets or sets the total number of samples for the channel.
+            /// </summary>
             public long TotalSamples { get; set; }
+
+            /// <summary>
+            /// Gets or sets a value indicating whether the channel data has been loaded into memory.
+            /// </summary>
             public bool IsLoaded { get; set; }
         }
 
         /// <summary>
-        /// Open a TDMS file with specific read options
+        /// Opens a TDMS file from the specified path with the given read options.
         /// </summary>
+        /// <param name="path">The path to the TDMS file.</param>
+        /// <param name="options">The options for reading the file.</param>
+        /// <returns>A <see cref="TdmsFile"/> object.</returns>
         public static TdmsFile Open(string path, TdmsReadOptions? options = null)
         {
             var stream = new FileStream(path, FileMode.Open, FileAccess.Read, 
@@ -74,8 +88,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Open a TDMS file from a stream with specific read options
+        /// Opens a TDMS file from the specified stream with the given read options.
         /// </summary>
+        /// <param name="stream">The stream to read the TDMS file from.</param>
+        /// <param name="options">The options for reading the file.</param>
+        /// <returns>A <see cref="TdmsFile"/> object.</returns>
         public static TdmsFile Open(Stream stream, TdmsReadOptions? options = null)
         {
             options ??= new TdmsReadOptions();
@@ -99,8 +116,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Get an enumerator for efficient iteration over channel data
+        /// Gets an enumerator for efficient iteration over the data of a specified channel.
         /// </summary>
+        /// <param name="channelPath">The path of the channel to enumerate.</param>
+        /// <returns>An <see cref="IChannelDataEnumerator"/> for the specified channel.</returns>
+        /// <exception cref="ArgumentException">Thrown when the specified channel is not found.</exception>
         public IChannelDataEnumerator GetChannelEnumerator(string channelPath)
         {
             var channel = FindChannel(channelPath);
@@ -116,8 +136,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Load specific channels into memory
+        /// Asynchronously loads the data for the specified channels into memory. This is only applicable when the file was opened with lazy loading enabled.
         /// </summary>
+        /// <param name="channelPaths">The paths of the channels to load.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when this method is called on a file that was not opened with lazy loading.</exception>
         public async Task LoadChannelsAsync(params string[] channelPaths)
         {
             if (_sourceStream == null)
@@ -128,8 +151,14 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Load a specific range of samples from a channel
+        /// Asynchronously loads a specific range of samples from a channel.
         /// </summary>
+        /// <param name="channelPath">The path of the channel to load data from.</param>
+        /// <param name="startSample">The zero-based starting index of the sample range.</param>
+        /// <param name="count">The number of samples to load.</param>
+        /// <returns>A task that represents the asynchronous operation. The task result contains an array with the requested range of samples.</returns>
+        /// <exception cref="ArgumentException">Thrown when the specified channel is not found.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when there is no data information for the channel.</exception>
         public async Task<Array> LoadChannelRangeAsync(string channelPath, long startSample, long count)
         {
             var channel = FindChannel(channelPath);
@@ -262,7 +291,7 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Dispose of resources
+        /// Releases the resources used by the <see cref="TdmsFile"/> object.
         /// </summary>
         public void Dispose()
         {
@@ -275,13 +304,32 @@ namespace TDMSSharp
     }
 
     /// <summary>
-    /// Interface for channel data enumeration
+    /// Defines an enumerator for iterating over channel data, which can be either eagerly loaded or lazily read from a file.
     /// </summary>
     public interface IChannelDataEnumerator : IDisposable
     {
+        /// <summary>
+        /// Gets a value indicating whether there is more data to be enumerated.
+        /// </summary>
         bool HasMore { get; }
+
+        /// <summary>
+        /// Gets the next chunk of data from the channel.
+        /// </summary>
+        /// <param name="maxSamples">The maximum number of samples to get.</param>
+        /// <returns>An array containing the next chunk of data.</returns>
         Array GetNext(int maxSamples);
+
+        /// <summary>
+        /// Asynchronously gets the next chunk of data from the channel.
+        /// </summary>
+        /// <param name="maxSamples">The maximum number of samples to get.</param>
+        /// <returns>A task that represents the asynchronous operation. The task result contains an array with the next chunk of data.</returns>
         Task<Array> GetNextAsync(int maxSamples);
+
+        /// <summary>
+        /// Resets the enumerator to the beginning of the data.
+        /// </summary>
         void Reset();
     }
 

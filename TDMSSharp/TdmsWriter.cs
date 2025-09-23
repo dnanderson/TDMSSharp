@@ -7,17 +7,28 @@ using System.Text;
 
 namespace TDMSSharp
 {
+    /// <summary>
+    /// Provides a low-level writer for TDMS files.
+    /// </summary>
     public class TdmsWriter
     {
         private readonly BinaryWriter _writer;
         private static readonly DateTime TdmsEpoch = new DateTime(1904, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         private readonly byte[] _writeBuffer = new byte[81920]; // 80KB buffer for better I/O
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TdmsWriter"/> class.
+        /// </summary>
+        /// <param name="stream">The stream to write the TDMS file to.</param>
         public TdmsWriter(Stream stream)
         {
             _writer = new BinaryWriter(stream, Encoding.UTF8, true);
         }
 
+        /// <summary>
+        /// Writes the specified <see cref="TdmsFile"/> object to the stream.
+        /// </summary>
+        /// <param name="file">The <see cref="TdmsFile"/> object to write.</param>
         public void WriteFile(TdmsFile file)
         {
             // Reserve space for lead-in

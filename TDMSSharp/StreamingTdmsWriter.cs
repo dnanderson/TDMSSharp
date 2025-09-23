@@ -5,6 +5,9 @@ using System.Text;
 
 namespace TDMSSharp
 {
+    /// <summary>
+    /// Provides a mechanism for writing TDMS data in a streaming fashion, which is suitable for large datasets.
+    /// </summary>
     public class StreamingTdmsWriter : IDisposable
     {
         private readonly BinaryWriter _writer;
@@ -13,12 +16,20 @@ namespace TDMSSharp
         private readonly HashSet<string> _writtenObjects = new HashSet<string>();
         private readonly Dictionary<string, TdmsRawDataIndex> _channelIndices = new Dictionary<string, TdmsRawDataIndex>();
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="StreamingTdmsWriter"/> class.
+        /// </summary>
+        /// <param name="stream">The stream to write TDMS data to.</param>
+        /// <param name="file">The TDMS file object containing metadata.</param>
         public StreamingTdmsWriter(Stream stream, TdmsFile file)
         {
             _writer = new BinaryWriter(stream, Encoding.UTF8, true);
             _file = file;
         }
 
+        /// <summary>
+        /// Writes the file header and initial metadata segment. This should be called before writing data segments.
+        /// </summary>
         public void WriteFileHeader()
         {
             if (_writer.BaseStream.Position == 0 && _file.Properties.Count == 0 && _file.ChannelGroups.Count == 0) return;
@@ -60,8 +71,16 @@ namespace TDMSSharp
             _previousSegmentLeadInStart = currentSegmentLeadInStart;
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether metadata has been modified and needs to be written to the stream.
+        /// </summary>
         public bool MetadataDirty { get; set; }
 
+        /// <summary>
+        /// Writes a segment of data to the TDMS file.
+        /// </summary>
+        /// <param name="channels">The channels to write data for.</param>
+        /// <param name="dataArrays">The corresponding data arrays for each channel.</param>
         public void WriteSegment(TdmsChannel[] channels, object[] dataArrays)
         {
             if (MetadataDirty) WriteMetadataSegment();
@@ -349,6 +368,9 @@ namespace TDMSSharp
             return parts[0].TrimStart('/').Trim('\'');
         }
 
+        /// <summary>
+        /// Finalizes the TDMS file by updating segment information and disposes the writer.
+        /// </summary>
         public void Dispose()
         {
             if (_previousSegmentLeadInStart != -1)

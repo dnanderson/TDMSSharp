@@ -21,7 +21,14 @@ namespace TDMSSharp
         private readonly LinkedList<long> _lruList = new();
         private readonly int _maxCachedChunks;
 
+        /// <summary>
+        /// Gets the total number of samples in the channel.
+        /// </summary>
         public long Length => _totalSamples;
+
+        /// <summary>
+        /// Gets the underlying <see cref="TdmsChannel"/> for this view.
+        /// </summary>
         public TdmsChannel Channel => _channel;
 
         internal TdmsChannelView(TdmsChannel channel, Func<long, long, T[]> dataLoader, long totalSamples, int chunkSize = 65536)
@@ -34,8 +41,10 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Indexer for accessing individual samples
+        /// Gets the sample at the specified index. This operation may be slow if the data is not already cached.
         /// </summary>
+        /// <param name="index">The zero-based index of the sample to get.</param>
+        /// <returns>The sample at the specified index.</returns>
         public T this[long index]
         {
             get
@@ -52,8 +61,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Get a range of samples
+        /// Gets a range of samples from the channel. This is more efficient than accessing samples one by one.
         /// </summary>
+        /// <param name="start">The zero-based starting index of the range.</param>
+        /// <param name="count">The number of samples to get.</param>
+        /// <returns>An array containing the requested range of samples.</returns>
         public T[] GetRange(long start, long count)
         {
             if (start < 0 || start + count > _totalSamples)
@@ -66,16 +78,21 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Get a range of samples asynchronously
+        /// Asynchronously gets a range of samples from the channel.
         /// </summary>
+        /// <param name="start">The zero-based starting index of the range.</param>
+        /// <param name="count">The number of samples to get.</param>
+        /// <returns>A task that represents the asynchronous operation. The task result contains an array with the requested range of samples.</returns>
         public Task<T[]> GetRangeAsync(long start, long count)
         {
             return Task.Run(() => GetRange(start, count));
         }
 
         /// <summary>
-        /// Process data in chunks without loading everything into memory
+        /// Processes the channel data in chunks, which is useful for large datasets that do not fit into memory.
         /// </summary>
+        /// <param name="processor">The action to perform on each chunk of data. The second parameter of the action is the offset of the chunk.</param>
+        /// <param name="chunkSize">The size of the chunks to process. If 0, the default chunk size is used.</param>
         public void ProcessInChunks(Action<T[], long> processor, int chunkSize = 0)
         {
             if (chunkSize <= 0) chunkSize = _chunkSize;
@@ -89,8 +106,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Process data in chunks asynchronously
+        /// Asynchronously processes the channel data in chunks.
         /// </summary>
+        /// <param name="processor">The asynchronous action to perform on each chunk of data. The second parameter of the action is the offset of the chunk.</param>
+        /// <param name="chunkSize">The size of the chunks to process. If 0, the default chunk size is used.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         public async Task ProcessInChunksAsync(Func<T[], long, Task> processor, int chunkSize = 0)
         {
             if (chunkSize <= 0) chunkSize = _chunkSize;
@@ -104,8 +124,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Parallel processing of channel data
+        /// Processes the channel data in parallel, which can significantly speed up processing on multi-core systems.
         /// </summary>
+        /// <param name="processor">The action to perform on each chunk of data. The second parameter of the action is the offset of the chunk.</param>
+        /// <param name="degreeOfParallelism">The number of parallel tasks to use. If -1, the number of available processors is used.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         public Task ProcessInParallel(Action<T[], long> processor, int degreeOfParallelism = -1)
         {
             if (degreeOfParallelism <= 0)
@@ -135,8 +158,10 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Compute statistics without loading all data
+        /// Computes statistics for the channel data without loading the entire dataset into memory.
         /// </summary>
+        /// <returns>A <see cref="ChannelStatistics"/> object containing the computed statistics.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when statistics are computed for a non-numeric data type.</exception>
         public ChannelStatistics ComputeStatistics()
         {
             if (!IsNumericType())
@@ -177,8 +202,10 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Decimate data for visualization
+        /// Decimates the data to a specified number of samples, which is useful for creating visualizations of large datasets.
         /// </summary>
+        /// <param name="targetSamples">The target number of samples.</param>
+        /// <returns>An array containing the decimated data.</returns>
         public T[] Decimate(int targetSamples)
         {
             if (targetSamples >= _totalSamples)
@@ -197,8 +224,11 @@ namespace TDMSSharp
         }
 
         /// <summary>
-        /// Min/max decimation for waveform visualization
+        /// Decimates the data by calculating the minimum and maximum values for each block of samples. This is particularly useful for visualizing waveforms.
         /// </summary>
+        /// <param name="targetPairs">The target number of min/max pairs.</param>
+        /// <returns>A tuple containing two arrays: one for the minimum values and one for the maximum values.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when min/max decimation is attempted on a non-numeric data type.</exception>
         public (T[] mins, T[] maxs) DecimateMinMax(int targetPairs)
         {
             if (!IsNumericType())
@@ -271,6 +301,10 @@ namespace TDMSSharp
                    type == typeof(float) || type == typeof(double);
         }
 
+        /// <summary>
+        /// Returns an enumerator that iterates through the samples in the channel.
+        /// </summary>
+        /// <returns>An enumerator that can be used to iterate through the samples.</returns>
         public IEnumerator<T> GetEnumerator()
         {
             for (long i = 0; i < _totalSamples; i++)
@@ -287,11 +321,34 @@ namespace TDMSSharp
     /// </summary>
     public class ChannelStatistics
     {
+        /// <summary>
+        /// Gets or sets the total number of samples.
+        /// </summary>
         public long Count { get; set; }
+
+        /// <summary>
+        /// Gets or sets the minimum value.
+        /// </summary>
         public double Min { get; set; }
+
+        /// <summary>
+        /// Gets or sets the maximum value.
+        /// </summary>
         public double Max { get; set; }
+
+        /// <summary>
+        /// Gets or sets the mean (average) value.
+        /// </summary>
         public double Mean { get; set; }
+
+        /// <summary>
+        /// Gets or sets the standard deviation.
+        /// </summary>
         public double StdDev { get; set; }
+
+        /// <summary>
+        /// Gets or sets the sum of all values.
+        /// </summary>
         public double Sum { get; set; }
     }
 }
