@@ -59,5 +59,19 @@ namespace TDMSSharp
             var reader = new TdmsReader(stream);
             return reader.ReadFile();
         }
+
+        public TdmsFile DeepClone()
+        {
+            var clone = new TdmsFile();
+            foreach (var prop in Properties)
+            {
+                clone.Properties.Add(new TdmsProperty(prop.Name, prop.DataType, prop.Value));
+            }
+            foreach (var group in ChannelGroups)
+            {
+                clone.ChannelGroups.Add(group.DeepClone());
+            }
+            return clone;
+        }
     }
 }

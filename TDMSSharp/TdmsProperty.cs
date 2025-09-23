@@ -12,5 +12,16 @@ namespace TDMSSharp
             DataType = dataType;
             Value = value;
         }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is TdmsProperty other)
+            {
+                return Name == other.Name && DataType == other.DataType && Value.Equals(other.Value);
+            }
+            return false;
+        }
+
+        public override int GetHashCode() => (Name, DataType, Value).GetHashCode();
     }
 }
