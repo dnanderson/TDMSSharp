@@ -131,6 +131,24 @@ namespace TDMSSharp
         }
 
         /// <summary>
+        /// Creates a new channel without writing data.
+        /// </summary>
+        /// <typeparam name="T">The data type of the channel.</typeparam>
+        /// <param name="groupName">The name of the channel group.</param>
+        /// <param name="channelName">The name of the channel.</param>
+        public void CreateChannel<T>(string groupName, string channelName)
+        {
+            var group = _file.GetOrAddChannelGroup(groupName);
+            var channelPath = $"{group.Path}/'{channelName.Replace("'", "''")}'";
+            if (!_channelCache.ContainsKey(channelPath))
+            {
+                var channel = group.AddChannel<T>(channelName);
+                _channelCache[channelPath] = channel;
+                _writer.MetadataDirty = true;
+            }
+        }
+
+        /// <summary>
         /// Adds a property to the file.
         /// </summary>
         /// <typeparam name="T">The type of the property value.</typeparam>

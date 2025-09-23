@@ -94,7 +94,7 @@ namespace TDMSSharp
 
             var numValues = valuesCount ?? channel?.NumberOfValues ?? 0;
 
-            if (channel != null && numValues > 0)
+    if (channel != null)
             {
                 // Use stack allocation for index
                 Span<byte> indexBuffer = stackalloc byte[32];
@@ -107,11 +107,14 @@ namespace TDMSSharp
                 BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), numValues);
                 indexLength += 8;
 
-                if (channel.DataType == TdsDataType.String && channel.Data != null)
+        if (channel.DataType == TdsDataType.String)
                 {
                     var totalBytes = 0UL;
-                    foreach (var s in (string[])channel.Data) 
-                        totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
+            if (numValues > 0 && channel.Data != null)
+            {
+                foreach (var s in (string[])channel.Data)
+                    totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
+            }
                     BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), totalBytes);
                     indexLength += 8;
                 }
