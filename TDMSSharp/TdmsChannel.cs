@@ -37,5 +37,19 @@ namespace TDMSSharp
         {
             return Data as Array;
         }
+
+        public TdmsChannel DeepClone()
+        {
+            var clone = new TdmsChannel(Path)
+            {
+                DataType = DataType,
+                NumberOfValues = NumberOfValues
+            };
+            foreach (var prop in Properties)
+            {
+                clone.Properties.Add(new TdmsProperty(prop.Name, prop.DataType, prop.Value));
+            }
+            return clone;
+        }
     }
 }

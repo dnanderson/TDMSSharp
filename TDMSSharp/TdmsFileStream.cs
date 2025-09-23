@@ -115,6 +115,7 @@ namespace TDMSSharp
         public void AddFileProperty<T>(string name, T value)
         {
             _file.AddProperty(name, value);
+            _writer.MetadataDirty = true;
         }
 
         /// <summary>
@@ -124,6 +125,7 @@ namespace TDMSSharp
         {
             var group = _file.GetOrAddChannelGroup(groupName);
             group.AddProperty(propertyName, value);
+            _writer.MetadataDirty = true;
         }
 
         /// <summary>
@@ -143,6 +145,7 @@ namespace TDMSSharp
             }
             
             channel.AddProperty(propertyName, value);
+            _writer.MetadataDirty = true;
         }
 
         /// <summary>

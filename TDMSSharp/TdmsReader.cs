@@ -640,6 +640,11 @@ namespace TDMSSharp
                 var propName = ReadStringOptimized();
                 var propDataType = (TdsDataType)_reader.ReadUInt32();
                 var propValue = ReadValue(propDataType);
+                var existingProp = properties.FirstOrDefault(p => p.Name == propName);
+                if (existingProp != null)
+                {
+                    properties.Remove(existingProp);
+                }
                 properties.Add(new TdmsProperty(propName, propDataType, propValue));
             }
         }

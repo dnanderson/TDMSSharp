@@ -35,5 +35,19 @@ namespace TDMSSharp
             var dataType = TdsDataTypeProvider.GetDataType<T>();
             Properties.Add(new TdmsProperty(name, dataType, value));
         }
+
+        public TdmsChannelGroup DeepClone()
+        {
+            var clone = new TdmsChannelGroup(Path);
+            foreach (var prop in Properties)
+            {
+                clone.Properties.Add(new TdmsProperty(prop.Name, prop.DataType, prop.Value));
+            }
+            foreach (var channel in Channels)
+            {
+                clone.Channels.Add(channel.DeepClone());
+            }
+            return clone;
+        }
     }
 }
