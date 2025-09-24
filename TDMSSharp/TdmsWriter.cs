@@ -88,7 +88,7 @@ namespace TDMSSharp
             }
         }
 
-        internal static void WriteObjectMetaData(BinaryWriter writer, string path, IList<TdmsProperty> properties, TdmsChannel? channel = null, ulong? valuesCount = null)
+        internal static void WriteObjectMetaData(BinaryWriter writer, string path, IList<TdmsProperty> properties, TdmsChannel? channel = null, ulong? valuesCount = null, object? data = null)
         {
             WriteString(writer, path);
 
@@ -110,9 +110,9 @@ namespace TDMSSharp
                 if (channel.DataType == TdsDataType.String)
                 {
                     var totalBytes = 0UL;
-                    if (numValues > 0 && channel.Data != null)
+                    if (numValues > 0 && data != null)
                     {
-                        foreach (var s in (string[])channel.Data)
+                        foreach (var s in (string[])data)
                             totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
                     }
                     BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), totalBytes);
@@ -196,30 +196,28 @@ namespace TDMSSharp
 
         private static void WriteStringArray(BinaryWriter writer, string[] strings)
         {
-            // Pre-calculate total size
             var totalStringBytes = 0;
             foreach (var s in strings)
                 totalStringBytes += Encoding.UTF8.GetByteCount(s);
 
-            // Use pooled buffer for offsets and string data
-            var offsetBuffer = ArrayPool<byte>.Shared.Rent(strings.Length * 4);
+            var offsetBuffer = ArrayPool<byte>.Shared.Rent((strings.Length + 1) * 4);
             var stringBuffer = ArrayPool<byte>.Shared.Rent(totalStringBytes);
 
             try
             {
-                var currentOffset = (uint)(strings.Length * 4);
+                uint currentOffset = 0;
                 var stringBufferPos = 0;
 
                 for (int i = 0; i < strings.Length; i++)
                 {
                     BitConverter.TryWriteBytes(offsetBuffer.AsSpan(i * 4, 4), currentOffset);
-                    var byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length,
-                                                          stringBuffer, stringBufferPos);
+                    var byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length, stringBuffer, stringBufferPos);
                     currentOffset += (uint)byteCount;
                     stringBufferPos += byteCount;
                 }
+                BitConverter.TryWriteBytes(offsetBuffer.AsSpan(strings.Length * 4, 4), currentOffset);
 
-                writer.Write(offsetBuffer, 0, strings.Length * 4);
+                writer.Write(offsetBuffer, 0, (strings.Length + 1) * 4);
                 writer.Write(stringBuffer, 0, stringBufferPos);
             }
             finally
@@ -229,7 +227,7 @@ namespace TDMSSharp
             }
         }
 
-        internal static void WriteRawData(BinaryWriter writer, object data)
+        internal static void WriteRawData(BinaryWriter writer, object data, TdsDataType dataType)
         {
             WriteRawDataOptimized(writer, data);
         }
@@ -246,8 +244,8 @@ namespace TDMSSharp
             var timestamp = dt.ToUniversalTime();
             var timespan = timestamp - TdmsEpoch;
             long seconds = (long)timespan.TotalSeconds;
-            var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) *
-                                   (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
+            var ticks = timespan.Ticks % TimeSpan.TicksPerSecond;
+            var fractions = (ulong)((new System.Numerics.BigInteger(ticks) << 64) / TimeSpan.TicksPerSecond);
             writer.Write(fractions);
             writer.Write(seconds);
         }

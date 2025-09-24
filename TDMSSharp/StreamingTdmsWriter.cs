@@ -88,10 +88,12 @@ namespace TDMSSharp
             long currentSegmentLeadInStart = _writer.BaseStream.Position;
 
             var valueCounts = new Dictionary<TdmsChannel, ulong>();
+            var dataArraysDict = new Dictionary<TdmsChannel, object>();
             for (int i = 0; i < channels.Length; i++)
             {
                 var data = (Array)dataArrays[i];
                 valueCounts[channels[i]] = (ulong)data.Length;
+                dataArraysDict[channels[i]] = data;
             }
 
             // Reserve space for lead-in (28 bytes)
@@ -99,7 +101,7 @@ namespace TDMSSharp
             _writer.Write(new byte[28]);
 
             long metaDataStart = _writer.BaseStream.Position;
-            var newObjects = WriteMetaData(_writer, channels, valueCounts);
+            var newObjects = WriteMetaData(_writer, channels, valueCounts, dataArraysDict);
             long metaDataLength = _writer.BaseStream.Position - metaDataStart;
 
             // Write raw data directly
@@ -109,7 +111,7 @@ namespace TDMSSharp
                 var channel = channels[i];
                 var data = (Array)dataArrays[i];
                 channel.NumberOfValues += (ulong)data.Length;
-                TdmsWriter.WriteRawData(_writer, data);
+                TdmsWriter.WriteRawData(_writer, data, channel.DataType);
             }
             long rawDataLength = _writer.BaseStream.Position - rawDataStart;
 
@@ -216,7 +218,7 @@ namespace TDMSSharp
             _lastWrittenState = _file.DeepClone();
         }
 
-        private bool WriteMetaData(BinaryWriter writer, TdmsChannel[] channels, Dictionary<TdmsChannel, ulong> valueCounts)
+        private bool WriteMetaData(BinaryWriter writer, TdmsChannel[] channels, Dictionary<TdmsChannel, ulong> valueCounts, Dictionary<TdmsChannel, object> dataArrays)
         {
             var objectsToWrite = new List<object>();
             bool newObjects = false;
@@ -262,7 +264,7 @@ namespace TDMSSharp
                 }
                 else if (obj is TdmsChannel channel)
                 {
-                    TdmsWriter.WriteObjectMetaData(writer, channel.Path, channel.Properties, channel, valueCounts[channel]);
+                    TdmsWriter.WriteObjectMetaData(writer, channel.Path, channel.Properties, channel, valueCounts[channel], dataArrays[channel]);
                     _writtenObjects.Add(channel.Path);
                 }
             }
