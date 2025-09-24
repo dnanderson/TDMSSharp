@@ -248,8 +248,8 @@ namespace TDMSSharp
             long seconds = (long)timespan.TotalSeconds;
             var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) * 
                                    (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
-            writer.Write(seconds);
             writer.Write(fractions);
+            writer.Write(seconds);
         }
 
         internal static void WriteValue(BinaryWriter writer, object value, TdsDataType dataType)
