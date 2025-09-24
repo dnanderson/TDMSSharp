@@ -119,5 +119,20 @@ namespace TDMSSharp
             }
             return clone;
         }
+
+        /// <summary>
+        /// Gets the channel with the specified path.
+        /// </summary>
+        /// <param name="channelPath">The path of the channel.</param>
+        /// <returns>The <see cref="TdmsChannel"/> if found; otherwise, <c>null</c>.</returns>
+        public TdmsChannel? GetChannel(string channelPath)
+        {
+            var pathParts = channelPath.Split('/');
+            if (pathParts.Length != 3) return null; // e.g., "", "'group'", "'channel'"
+            var groupName = pathParts[1].Trim('\'');
+            var channelName = pathParts[2].Trim('\'');
+            var group = ChannelGroups.FirstOrDefault(g => g.Name == groupName);
+            return group?.Channels.FirstOrDefault(c => c.Name == channelName);
+        }
     }
 }

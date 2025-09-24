@@ -751,6 +751,23 @@ namespace TDMSSharp
 
         private T[] ReadData<T>(ulong count)
         {
+            if (typeof(T) == typeof(string))
+            {
+                var offsets = new uint[count + 1];
+                var buffer = new byte[(count + 1) * 4];
+                _reader.Read(buffer, 0, buffer.Length);
+                Buffer.BlockCopy(buffer, 0, offsets, 0, buffer.Length);
+
+                var strings = new string[count];
+                for (ulong i = 0; i < count; i++)
+                {
+                    var stringLength = offsets[i + 1] - offsets[i];
+                    var stringBytes = _reader.ReadBytes((int)stringLength);
+                    strings[i] = Encoding.UTF8.GetString(stringBytes);
+                }
+                return (T[])(object)strings;
+            }
+
             var data = new T[count];
             var type = TdsDataTypeProvider.GetDataType<T>();
             for (ulong i = 0; i < count; i++)
@@ -763,28 +780,12 @@ namespace TDMSSharp
             if (string.IsNullOrEmpty(path) || path == "/")
                 return new List<string>();
 
-            var result = new List<string>(2); // Pre-allocate for typical case
-            var span = path.AsSpan(1); // Skip leading /
+            if (path.StartsWith("/"))
+                path = path.Substring(1);
 
-            int start = 0;
-            for (int i = 0; i < span.Length; i++)
-            {
-                if (i + 2 < span.Length && span[i] == '\'' && span[i + 1] == '/' && span[i + 2] == '\'')
-                {
-                    var part = span.Slice(start, i - start).ToString().Trim('\'').Replace("''", "'");
-                    result.Add(part);
-                    start = i + 3;
-                    i += 2;
-                }
-            }
-
-            if (start < span.Length)
-            {
-                var part = span.Slice(start).ToString().Trim('\'').Replace("''", "'");
-                result.Add(part);
-            }
-
-            return result;
+            return path.Split(new[] { "'/'" }, StringSplitOptions.None)
+                       .Select(p => p.Trim('\'').Replace("''", "'"))
+                       .ToList();
         }
 
         private IList<TdmsProperty> GetPropertiesList(object tdmsObject)

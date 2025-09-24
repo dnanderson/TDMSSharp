@@ -13,6 +13,18 @@ namespace TDMSSharp
         public string Path { get; }
 
         /// <summary>
+        /// Gets the name of the channel.
+        /// </summary>
+        public string Name
+        {
+            get
+            {
+                var lastSlash = Path.LastIndexOf('/');
+                return Path.Substring(lastSlash + 1).Trim('\'');
+            }
+        }
+
+        /// <summary>
         /// Gets the list of properties for this channel.
         /// </summary>
         public IList<TdmsProperty> Properties { get; } = new List<TdmsProperty>();

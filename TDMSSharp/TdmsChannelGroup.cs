@@ -15,6 +15,11 @@ namespace TDMSSharp
         public string Path { get; }
 
         /// <summary>
+        /// Gets the name of the channel group.
+        /// </summary>
+        public string Name => Path.TrimStart('/').Trim('\'');
+
+        /// <summary>
         /// Gets the list of properties for this channel group.
         /// </summary>
         public IList<TdmsProperty> Properties { get; } = new List<TdmsProperty>();
