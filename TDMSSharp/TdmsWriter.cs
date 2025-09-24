@@ -73,7 +73,7 @@ namespace TDMSSharp
             uint objectCount = 1 + (uint)file.ChannelGroups.Count;
             foreach (var group in file.ChannelGroups)
                 objectCount += (uint)group.Channels.Count;
-            
+
             _writer.Write(objectCount);
 
             WriteObjectMetaData(_writer, "/", file.Properties);
@@ -94,7 +94,7 @@ namespace TDMSSharp
 
             var numValues = valuesCount ?? channel?.NumberOfValues ?? 0;
 
-    if (channel != null)
+            if (channel != null)
             {
                 // Use stack allocation for index
                 Span<byte> indexBuffer = stackalloc byte[32];
@@ -107,14 +107,14 @@ namespace TDMSSharp
                 BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), numValues);
                 indexLength += 8;
 
-        if (channel.DataType == TdsDataType.String)
+                if (channel.DataType == TdsDataType.String)
                 {
                     var totalBytes = 0UL;
-            if (numValues > 0 && channel.Data != null)
-            {
-                foreach (var s in (string[])channel.Data)
-                    totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
-            }
+                    if (numValues > 0 && channel.Data != null)
+                    {
+                        foreach (var s in (string[])channel.Data)
+                            totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
+                    }
                     BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), totalBytes);
                     indexLength += 8;
                 }
@@ -132,7 +132,7 @@ namespace TDMSSharp
             {
                 WriteString(writer, prop.Name);
                 writer.Write((uint)prop.DataType);
-                if (prop.Value != null) 
+                if (prop.Value != null)
                     WriteValue(writer, prop.Value, prop.DataType);
             }
         }
@@ -150,7 +150,7 @@ namespace TDMSSharp
                 // Fast path for primitive types using Buffer.BlockCopy
                 var elementSize = Marshal.SizeOf(elementType);
                 var totalBytes = array.Length * elementSize;
-                
+
                 // Use pooled buffer for large arrays
                 if (totalBytes > 81920)
                 {
@@ -178,7 +178,7 @@ namespace TDMSSharp
             }
             else if (elementType == typeof(bool))
             {
-                foreach (var b in (bool[])data) 
+                foreach (var b in (bool[])data)
                     writer.Write((byte)(b ? 1 : 0));
             }
             else if (elementType == typeof(DateTime))
@@ -204,7 +204,7 @@ namespace TDMSSharp
             // Use pooled buffer for offsets and string data
             var offsetBuffer = ArrayPool<byte>.Shared.Rent(strings.Length * 4);
             var stringBuffer = ArrayPool<byte>.Shared.Rent(totalStringBytes);
-            
+
             try
             {
                 var currentOffset = (uint)(strings.Length * 4);
@@ -213,7 +213,7 @@ namespace TDMSSharp
                 for (int i = 0; i < strings.Length; i++)
                 {
                     BitConverter.TryWriteBytes(offsetBuffer.AsSpan(i * 4, 4), currentOffset);
-                    var byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length, 
+                    var byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length,
                                                           stringBuffer, stringBufferPos);
                     currentOffset += (uint)byteCount;
                     stringBufferPos += byteCount;
@@ -246,7 +246,7 @@ namespace TDMSSharp
             var timestamp = dt.ToUniversalTime();
             var timespan = timestamp - TdmsEpoch;
             long seconds = (long)timespan.TotalSeconds;
-            var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) * 
+            var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) *
                                    (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
             writer.Write(fractions);
             writer.Write(seconds);
@@ -272,7 +272,7 @@ namespace TDMSSharp
                     var timestamp = (DateTime)value;
                     var timespan = timestamp.ToUniversalTime() - TdmsEpoch;
                     long seconds = (long)timespan.TotalSeconds;
-                    var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) * 
+                    var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) *
                                            (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
                     writer.Write(fractions);
                     writer.Write(seconds);
