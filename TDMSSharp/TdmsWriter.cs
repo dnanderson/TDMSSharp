@@ -198,33 +198,27 @@ namespace TDMSSharp
 
         private static void WriteStringArray(BinaryWriter writer, string[] strings)
         {
-            if (strings.Length == 0) return;
-
-            int totalStringBytes = 0;
-            foreach (string s in strings)
+            var totalStringBytes = 0;
+            foreach (var s in strings)
                 totalStringBytes += Encoding.UTF8.GetByteCount(s);
 
-            // Rent buffers from the pool
-            byte[] offsetBuffer = ArrayPool<byte>.Shared.Rent((strings.Length + 1) * 4);
-            byte[] stringBuffer = ArrayPool<byte>.Shared.Rent(totalStringBytes);
+            var offsetBuffer = ArrayPool<byte>.Shared.Rent(strings.Length * 4);
+            var stringBuffer = ArrayPool<byte>.Shared.Rent(totalStringBytes);
 
             try
             {
                 uint currentOffset = 0;
-                int stringBufferPos = 0;
-
-                // Write initial offset
-                BitConverter.TryWriteBytes(offsetBuffer.AsSpan(0, 4), 0);
+                var stringBufferPos = 0;
 
                 for (int i = 0; i < strings.Length; i++)
                 {
-                    int byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length, stringBuffer, stringBufferPos);
+                    currentOffset += (uint)Encoding.UTF8.GetByteCount(strings[i]);
+                    BitConverter.TryWriteBytes(offsetBuffer.AsSpan(i * 4, 4), currentOffset);
+                    var byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length, stringBuffer, stringBufferPos);
                     stringBufferPos += byteCount;
-                    currentOffset += (uint)byteCount;
-                    BitConverter.TryWriteBytes(offsetBuffer.AsSpan((i + 1) * 4, 4), currentOffset);
                 }
 
-                writer.Write(offsetBuffer, 0, (strings.Length + 1) * 4);
+                writer.Write(offsetBuffer, 0, strings.Length * 4);
                 writer.Write(stringBuffer, 0, stringBufferPos);
             }
             finally

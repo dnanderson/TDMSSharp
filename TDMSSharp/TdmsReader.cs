@@ -753,38 +753,24 @@ namespace TDMSSharp
         {
             if (typeof(T) == typeof(string))
             {
-                if (count == 0) return Array.Empty<T>();
+                if (count == 0) return (T[])(object)new string[0];
 
-                var offsets = new uint[count + 1];
-                var offsetBytes = new byte[(count + 1) * 4];
-                int bytesRead = 0;
-                while (bytesRead < offsetBytes.Length)
-                {
-                    int n = _reader.Read(offsetBytes, bytesRead, offsetBytes.Length - bytesRead);
-                    if (n == 0) throw new EndOfStreamException("Could not read all string offset data.");
-                    bytesRead += n;
-                }
-                Buffer.BlockCopy(offsetBytes, 0, offsets, 0, offsetBytes.Length);
+                var end_offsets = new uint[count];
+                var buffer = new byte[count * 4];
+                _reader.Read(buffer, 0, buffer.Length);
+                Buffer.BlockCopy(buffer, 0, end_offsets, 0, buffer.Length);
 
-                var totalStringSize = offsets[count];
+                var totalStringSize = end_offsets[count - 1];
+                var stringDataBytes = _reader.ReadBytes((int)totalStringSize);
+
                 var strings = new string[count];
-
-                if (totalStringSize > 0)
+                uint startOffset = 0;
+                for (ulong i = 0; i < count; i++)
                 {
-                    var allStringBytes = _reader.ReadBytes((int)totalStringSize);
-                    var allStringSpan = allStringBytes.AsSpan();
-
-                    for (ulong i = 0; i < count; i++)
-                    {
-                        var start = (int)offsets[i];
-                        var length = (int)offsets[i + 1] - start;
-                        strings[i] = Encoding.UTF8.GetString(allStringSpan.Slice(start, length));
-                    }
-                }
-                else
-                {
-                    // If total size is 0, all strings must be empty.
-                    Array.Fill(strings, string.Empty);
+                    var endOffset = end_offsets[i];
+                    var stringLength = endOffset - startOffset;
+                    strings[i] = Encoding.UTF8.GetString(stringDataBytes, (int)startOffset, (int)stringLength);
+                    startOffset = endOffset;
                 }
                 return (T[])(object)strings;
             }
