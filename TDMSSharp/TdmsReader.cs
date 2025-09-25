@@ -753,17 +753,38 @@ namespace TDMSSharp
         {
             if (typeof(T) == typeof(string))
             {
-                var offsets = new uint[count + 1];
-                var buffer = new byte[(count + 1) * 4];
-                _reader.Read(buffer, 0, buffer.Length);
-                Buffer.BlockCopy(buffer, 0, offsets, 0, buffer.Length);
+                if (count == 0) return Array.Empty<T>();
 
-                var strings = new string[count];
-                for (ulong i = 0; i < count; i++)
+                var offsets = new uint[count + 1];
+                var offsetBytes = new byte[(count + 1) * 4];
+                int bytesRead = 0;
+                while (bytesRead < offsetBytes.Length)
                 {
-                    var stringLength = offsets[i + 1] - offsets[i];
-                    var stringBytes = _reader.ReadBytes((int)stringLength);
-                    strings[i] = Encoding.UTF8.GetString(stringBytes);
+                    int n = _reader.Read(offsetBytes, bytesRead, offsetBytes.Length - bytesRead);
+                    if (n == 0) throw new EndOfStreamException("Could not read all string offset data.");
+                    bytesRead += n;
+                }
+                Buffer.BlockCopy(offsetBytes, 0, offsets, 0, offsetBytes.Length);
+
+                var totalStringSize = offsets[count];
+                var strings = new string[count];
+
+                if (totalStringSize > 0)
+                {
+                    var allStringBytes = _reader.ReadBytes((int)totalStringSize);
+                    var allStringSpan = allStringBytes.AsSpan();
+
+                    for (ulong i = 0; i < count; i++)
+                    {
+                        var start = (int)offsets[i];
+                        var length = (int)offsets[i + 1] - start;
+                        strings[i] = Encoding.UTF8.GetString(allStringSpan.Slice(start, length));
+                    }
+                }
+                else
+                {
+                    // If total size is 0, all strings must be empty.
+                    Array.Fill(strings, string.Empty);
                 }
                 return (T[])(object)strings;
             }

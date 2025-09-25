@@ -234,17 +234,22 @@ namespace TDMSSharp
                 var groupName = GetGroupName(channel.Path);
                 var groupPath = $"/'{groupName}'";
 
+                var group = _file.GetOrAddChannelGroup(groupName);
                 if (!_writtenObjects.Contains(groupPath))
                 {
-                    var group = _file.GetOrAddChannelGroup(groupName);
                     objectsToWrite.Add(group);
                     newObjects = true;
                 }
 
-                objectsToWrite.Add(channel);
                 if (!_writtenObjects.Contains(channel.Path))
                 {
+                    if (!objectsToWrite.Contains(channel))
+                        objectsToWrite.Add(channel);
                     newObjects = true;
+                }
+                else if (!objectsToWrite.Contains(channel))
+                {
+                    objectsToWrite.Add(channel);
                 }
             }
 
@@ -252,24 +257,31 @@ namespace TDMSSharp
 
             foreach (var obj in objectsToWrite)
             {
+                string path = GetObjectPath(obj);
                 if (obj is TdmsFile file)
                 {
-                    TdmsWriter.WriteObjectMetaData(writer, "/", file.Properties);
-                    _writtenObjects.Add("/");
+                    TdmsWriter.WriteObjectMetaData(writer, path, file.Properties);
                 }
                 else if (obj is TdmsChannelGroup group)
                 {
-                    TdmsWriter.WriteObjectMetaData(writer, group.Path, group.Properties);
-                    _writtenObjects.Add(group.Path);
+                    TdmsWriter.WriteObjectMetaData(writer, path, group.Properties);
                 }
                 else if (obj is TdmsChannel channel)
                 {
-                    TdmsWriter.WriteObjectMetaData(writer, channel.Path, channel.Properties, channel, valueCounts[channel], dataArrays[channel]);
-                    _writtenObjects.Add(channel.Path);
+                    TdmsWriter.WriteObjectMetaData(writer, path, channel.Properties, channel, valueCounts[channel], dataArrays[channel]);
                 }
+                _writtenObjects.Add(path);
             }
 
             return newObjects;
+        }
+
+        private string GetObjectPath(object obj)
+        {
+            if (obj is TdmsFile) return "/";
+            if (obj is TdmsChannelGroup group) return group.Path;
+            if (obj is TdmsChannel channel) return channel.Path;
+            throw new ArgumentException("Unknown object type.");
         }
 
         private void WriteRawDataIndex(BinaryWriter writer, TdmsChannel channel, ulong valueCount)
