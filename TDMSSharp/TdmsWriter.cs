@@ -112,7 +112,9 @@ namespace TDMSSharp
                     var totalBytes = 0UL;
                     if (numValues > 0 && data != null)
                     {
-                        foreach (var s in (string[])data)
+                        var strings = (string[])data;
+                        totalBytes = (ulong)strings.Length * 4;
+                        foreach (var s in strings)
                             totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
                     }
                     BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), totalBytes);
@@ -200,7 +202,7 @@ namespace TDMSSharp
             foreach (var s in strings)
                 totalStringBytes += Encoding.UTF8.GetByteCount(s);
 
-            var offsetBuffer = ArrayPool<byte>.Shared.Rent((strings.Length + 1) * 4);
+            var offsetBuffer = ArrayPool<byte>.Shared.Rent(strings.Length * 4);
             var stringBuffer = ArrayPool<byte>.Shared.Rent(totalStringBytes);
 
             try
@@ -210,14 +212,13 @@ namespace TDMSSharp
 
                 for (int i = 0; i < strings.Length; i++)
                 {
+                    currentOffset += (uint)Encoding.UTF8.GetByteCount(strings[i]);
                     BitConverter.TryWriteBytes(offsetBuffer.AsSpan(i * 4, 4), currentOffset);
                     var byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length, stringBuffer, stringBufferPos);
-                    currentOffset += (uint)byteCount;
                     stringBufferPos += byteCount;
                 }
-                BitConverter.TryWriteBytes(offsetBuffer.AsSpan(strings.Length * 4, 4), currentOffset);
 
-                writer.Write(offsetBuffer, 0, (strings.Length + 1) * 4);
+                writer.Write(offsetBuffer, 0, strings.Length * 4);
                 writer.Write(stringBuffer, 0, stringBufferPos);
             }
             finally
