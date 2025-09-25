@@ -753,17 +753,24 @@ namespace TDMSSharp
         {
             if (typeof(T) == typeof(string))
             {
-                var offsets = new uint[count + 1];
-                var buffer = new byte[(count + 1) * 4];
+                if (count == 0) return (T[])(object)new string[0];
+
+                var end_offsets = new uint[count];
+                var buffer = new byte[count * 4];
                 _reader.Read(buffer, 0, buffer.Length);
-                Buffer.BlockCopy(buffer, 0, offsets, 0, buffer.Length);
+                Buffer.BlockCopy(buffer, 0, end_offsets, 0, buffer.Length);
+
+                var totalStringSize = end_offsets[count - 1];
+                var stringDataBytes = _reader.ReadBytes((int)totalStringSize);
 
                 var strings = new string[count];
+                uint startOffset = 0;
                 for (ulong i = 0; i < count; i++)
                 {
-                    var stringLength = offsets[i + 1] - offsets[i];
-                    var stringBytes = _reader.ReadBytes((int)stringLength);
-                    strings[i] = Encoding.UTF8.GetString(stringBytes);
+                    var endOffset = end_offsets[i];
+                    var stringLength = endOffset - startOffset;
+                    strings[i] = Encoding.UTF8.GetString(stringDataBytes, (int)startOffset, (int)stringLength);
+                    startOffset = endOffset;
                 }
                 return (T[])(object)strings;
             }
