@@ -1,0 +1,21 @@
+/build
+/dist
+/*.egg-info
+/coverage
+/.coverage
+coverage.xml
+/MANIFEST
+*.pyc
+*.swp
+.tox
+.hypothesis
+.benchmarks
+.ipynb_checkpoints
+.vscode
+*.ipynb
+.idea
+
+# Wercker directories
+_builds
+_projects
+_steps
