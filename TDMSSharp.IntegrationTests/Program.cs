@@ -44,6 +44,9 @@ namespace TDMSReader
 
                 // Method 6: Performance comparison
                 await DemoPerformanceComparison(filePath);
+
+                // Run new tests for TdmsReader2
+                Reader2Tests.RunAllTests();
             }
             catch (Exception ex)
             {

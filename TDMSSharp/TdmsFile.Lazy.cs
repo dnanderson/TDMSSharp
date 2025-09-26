@@ -102,17 +102,21 @@ namespace TDMSSharp
                 throw new ArgumentException("Lazy loading requires a seekable stream");
             }
 
-            var reader = new TdmsReader(stream, options);
-            var file = reader.ReadFile();
-            
             if (options.LazyLoad)
             {
+                var reader = new TdmsReader(stream, options);
+                var file = reader.ReadFile();
+
                 file._sourceStream = stream;
                 file._ownsStream = false;
                 file._readOptions = options;
+                return file;
             }
-            
-            return file;
+            else
+            {
+                var reader = new TdmsReader2(stream);
+                return reader.ReadFile();
+            }
         }
 
         /// <summary>

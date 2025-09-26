@@ -78,29 +78,6 @@ namespace TDMSSharp
             writer.WriteFile(this);
         }
 
-        /// <summary>
-        /// Opens a TDMS file from the specified path.
-        /// </summary>
-        /// <param name="path">The path to the TDMS file.</param>
-        /// <returns>A <see cref="TdmsFile"/> object.</returns>
-        public static TdmsFile Open(string path)
-        {
-            using (var stream = File.OpenRead(path))
-            {
-                return Open(stream);
-            }
-        }
-
-        /// <summary>
-        /// Opens a TDMS file from the specified stream.
-        /// </summary>
-        /// <param name="stream">The stream to read the TDMS file from.</param>
-        /// <returns>A <see cref="TdmsFile"/> object.</returns>
-        public static TdmsFile Open(Stream stream)
-        {
-            var reader = new TdmsReader(stream);
-            return reader.ReadFile();
-        }
 
         /// <summary>
         /// Creates a deep clone of the TDMS file, including its properties and channel groups (but not the channel data).
