@@ -21,14 +21,14 @@ namespace TDMSSharp
         private readonly bool _ownsStreams;
         private readonly int _version;
         private readonly ArrayPool<byte> _bufferPool = ArrayPool<byte>.Shared;
-        
+
         private bool _rootWritten;
         private readonly HashSet<string> _writtenGroups = new();
         private readonly Dictionary<string, RawDataIndex> _previousIndexes = new();
         private readonly List<TdmsObject> _pendingObjects = new();
         private readonly MemoryStream _metadataBuffer = new();
         private readonly MemoryStream _rawDataBuffer = new();
-        
+
         private long _currentSegmentStart;
         private bool _disposed;
 
@@ -43,7 +43,7 @@ namespace TDMSSharp
             _indexStream = indexStream;
             _ownsStreams = ownsStreams;
             _version = options?.Version ?? 4713;
-            
+
             if (_version != 4712 && _version != 4713)
                 throw new ArgumentException($"Invalid TDMS version: {_version}. Must be 4712 or 4713.");
         }
@@ -57,7 +57,7 @@ namespace TDMSSharp
         {
             if (options?.CreateIndexFile != true)
                 return null;
-                
+
             var indexPath = filePath + "_index";
             return new FileStream(indexPath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, useAsync: true);
         }
@@ -69,7 +69,7 @@ namespace TDMSSharp
         {
             if (_pendingObjects.Count > 0)
                 throw new InvalidOperationException("Cannot begin new segment with pending objects. Call WriteSegment first.");
-                
+
             _currentSegmentStart = _dataStream.Position;
         }
 
@@ -89,7 +89,7 @@ namespace TDMSSharp
         {
             if (string.IsNullOrEmpty(groupName))
                 throw new ArgumentException("Group name cannot be null or empty", nameof(groupName));
-                
+
             _pendingObjects.Add(new TdmsGroup(groupName, properties));
             _writtenGroups.Add(groupName);
         }
@@ -97,7 +97,7 @@ namespace TDMSSharp
         /// <summary>
         /// Write channel data with optimal performance
         /// </summary>
-        public void WriteChannel<T>(string groupName, string channelName, ReadOnlySpan<T> data, IDictionary<string, object>? properties = null) 
+        public void WriteChannel<T>(string groupName, string channelName, ReadOnlySpan<T> data, IDictionary<string, object>? properties = null)
             where T : unmanaged
         {
             if (string.IsNullOrEmpty(groupName))
@@ -156,7 +156,7 @@ namespace TDMSSharp
             _pendingObjects.Sort((a, b) => GetObjectOrder(a).CompareTo(GetObjectOrder(b)));
 
             WriteSegmentInternal(_dataStream, false);
-            
+
             if (_indexStream != null)
             {
                 WriteSegmentInternal(_indexStream, true);
@@ -204,7 +204,7 @@ namespace TDMSSharp
         private void WriteLeadIn(Stream stream, TocFlags toc, long metadataSize, long rawDataSize, bool isIndex)
         {
             Span<byte> buffer = stackalloc byte[28];
-            
+
             // TDSm or TDSh tag
             if (isIndex)
             {
@@ -557,31 +557,33 @@ namespace TDMSSharp
         {
             long totalWritten = 0;
             var offsets = new uint[_data.Length];
+            var encodedStrings = new List<byte[]>(_data.Length); // Store encoded strings
             uint currentOffset = 0;
 
-            // Calculate offsets
+            // 1. Single pass to encode strings and calculate offsets
             for (int i = 0; i < _data.Length; i++)
             {
-                currentOffset += (uint)Encoding.UTF8.GetByteCount(_data[i]);
+                var bytes = Encoding.UTF8.GetBytes(_data[i]);
+                encodedStrings.Add(bytes);
+                currentOffset += (uint)bytes.Length;
                 offsets[i] = currentOffset;
             }
 
-            // Write offsets
+            // 2. Write offsets (with buffer allocated ONCE)
+            Span<byte> offsetBuffer = stackalloc byte[4];
             foreach (var offset in offsets)
             {
-                Span<byte> buffer = stackalloc byte[4];
-                BinaryPrimitives.WriteUInt32LittleEndian(buffer, offset);
-                stream.Write(buffer);
-                totalWritten += 4;
+                BinaryPrimitives.WriteUInt32LittleEndian(offsetBuffer, offset);
+                stream.Write(offsetBuffer);
             }
+            totalWritten += (long)offsets.Length * 4;
 
-            // Write strings
-            foreach (var str in _data)
+            // 3. Write the pre-encoded strings
+            foreach (var bytes in encodedStrings)
             {
-                var bytes = Encoding.UTF8.GetBytes(str);
                 stream.Write(bytes);
-                totalWritten += bytes.Length;
             }
+            totalWritten += currentOffset; // currentOffset is the total length of all strings
 
             return totalWritten;
         }
@@ -598,7 +600,7 @@ namespace TDMSSharp
 
         public bool Equals(RawDataIndex other)
         {
-            return DataType == other.DataType && 
+            return DataType == other.DataType &&
                    NumberOfValues == other.NumberOfValues &&
                    TotalSize == other.TotalSize;
         }
@@ -665,8 +667,8 @@ namespace TDMSSharp
         /// <summary>
         /// Write waveform data with standard waveform properties
         /// </summary>
-        public static void WriteWaveform<T>(this TdmsWriter writer, string groupName, string channelName, 
-            ReadOnlySpan<T> data, DateTime startTime, double increment, IDictionary<string, object>? additionalProperties = null) 
+        public static void WriteWaveform<T>(this TdmsWriter writer, string groupName, string channelName,
+            ReadOnlySpan<T> data, DateTime startTime, double increment, IDictionary<string, object>? additionalProperties = null)
             where T : unmanaged
         {
             var properties = new Dictionary<string, object>
