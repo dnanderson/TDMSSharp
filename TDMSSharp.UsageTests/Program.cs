@@ -206,10 +206,15 @@ class Program
             var random = new Random();
             const int chunkSize = 100;
             const int numChunks = 10;
+            bool should_segment = false;
 
             for (int chunk = 0; chunk < numChunks; chunk++)
             {
-                writer.BeginSegment();
+                if (should_segment)
+                {
+                    writer.BeginSegment();
+                    should_segment = true;
+                }
 
                 // Generate chunk data
                 var tempData = new double[chunkSize];
