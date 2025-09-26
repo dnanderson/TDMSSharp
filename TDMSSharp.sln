@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TDMSSharp.Tests", "TDMSShar
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TDMSSharp.IntegrationTests", "TDMSSharp.IntegrationTests\TDMSSharp.IntegrationTests.csproj", "{95B546B5-F867-40DD-84DC-6B8648065731}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TDMSSharp.UsageTests", "TDMSsharp.UsageTests\TDMSSharp.UsageTests.csproj", "{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{95B546B5-F867-40DD-84DC-6B8648065731}.Release|x64.Build.0 = Release|Any CPU
 		{95B546B5-F867-40DD-84DC-6B8648065731}.Release|x86.ActiveCfg = Release|Any CPU
 		{95B546B5-F867-40DD-84DC-6B8648065731}.Release|x86.Build.0 = Release|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Debug|x64.Build.0 = Debug|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Debug|x86.Build.0 = Debug|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Release|x64.ActiveCfg = Release|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Release|x64.Build.0 = Release|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Release|x86.ActiveCfg = Release|Any CPU
+		{BC5C92AC-4104-4F09-9FAF-BE72E76D80F9}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
