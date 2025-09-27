@@ -507,7 +507,7 @@ namespace TDMSSharp.Advanced
             
             if (index.DataType == TdsDataType.String)
             {
-                await WriteUInt64Async(stream, index.TotalSizeInBytes);
+                await WriteUInt64Async(stream, index.TotalSize);
             }
         }
 
@@ -670,7 +670,12 @@ namespace TDMSSharp.Advanced
 
         public TdmsRawDataIndex GetRawDataIndex()
         {
-            return new TdmsRawDataIndex(GetDataType(), (ulong)_data.Length, (ulong)(_data.Length * Unsafe.SizeOf<T>()));
+            return new TdmsRawDataIndex
+            {
+                DataType = GetDataType(),
+                NumberOfValues = (ulong)_data.Length,
+                TotalSize = (ulong)(_data.Length * Unsafe.SizeOf<T>())
+            };
         }
 
         public ReadOnlyMemory<byte> GetSampleBytes(int index)
@@ -739,7 +744,12 @@ namespace TDMSSharp.Advanced
 
         public TdmsRawDataIndex GetRawDataIndex()
         {
-            return new TdmsRawDataIndex(TdsDataType.DAQmxRawData, (ulong)SampleCount, (ulong)_rawData.Length);
+            return new TdmsRawDataIndex
+            {
+                DataType = TdsDataType.DAQmxRawData,
+                NumberOfValues = (ulong)SampleCount,
+                TotalSize = (ulong)_rawData.Length
+            };
         }
 
         public ReadOnlyMemory<byte> GetSampleBytes(int index)

@@ -3,34 +3,20 @@ namespace TDMSSharp
     /// <summary>
     /// Represents an index for a chunk of raw data in a TDMS file.
     /// </summary>
-    public class TdmsRawDataIndex
+    public struct TdmsRawDataIndex : IEquatable<TdmsRawDataIndex>
     {
-        /// <summary>
-        /// Gets the data type of the raw data.
-        /// </summary>
-        public TdsDataType DataType { get; }
-
-        /// <summary>
-        /// Gets the number of values in the raw data.
-        /// </summary>
-        public ulong NumberOfValues { get; }
-
-        /// <summary>
-        /// Gets the total size in bytes of the raw data. This is only used for string data.
-        /// </summary>
-        public ulong TotalSizeInBytes { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="TdmsRawDataIndex"/> class.
-        /// </summary>
-        /// <param name="dataType">The data type of the raw data.</param>
-        /// <param name="numberOfValues">The number of values in the raw data.</param>
-        /// <param name="totalSizeInBytes">The total size in bytes of the raw data (only for string data).</param>
-        public TdmsRawDataIndex(TdsDataType dataType, ulong numberOfValues, ulong totalSizeInBytes = 0)
-        {
-            DataType = dataType;
-            NumberOfValues = numberOfValues;
-            TotalSizeInBytes = totalSizeInBytes;
-        }
+            public TdsDataType DataType { get; set; }
+            public ulong NumberOfValues { get; set; }
+            public ulong TotalSize { get; set; }
+            
+            public bool Equals(TdmsRawDataIndex other)
+            {
+                return DataType == other.DataType && 
+                       NumberOfValues == other.NumberOfValues &&
+                       TotalSize == other.TotalSize;
+            }
+            
+            public override bool Equals(object? obj) => obj is TdmsRawDataIndex other && Equals(other);
+            public override int GetHashCode() => HashCode.Combine(DataType, NumberOfValues, TotalSize);
     }
 }
