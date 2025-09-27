@@ -653,8 +653,8 @@ namespace TDMSSharp
             var fractions = (ulong)((diff.TotalSeconds - seconds) * Math.Pow(2, 64));
 
             var bytes = new byte[16];
-            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(0, 8), seconds);
-            BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(8, 8), fractions);
+            BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(0, 8), fractions);
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8, 8), seconds);
             return (TdsDataType.TimeStamp, bytes);
         }
     }
