@@ -1,402 +1,295 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Threading.Tasks;
-using TDMSSharp;
+using System.Linq;
+using System.Threading;
+using TdmsWriter;
 
-class Program
+namespace TdmsDemo
 {
-    static async Task Main(string[] args)
+    class Program
     {
-        // Example 1: Basic usage with automatic file management
-        await BasicUsageExample();
-
-        // Example 2: High-performance streaming with multiple channels
-        await HighPerformanceStreamingExample();
-
-        // Example 3: Writing with properties at all levels
-        await PropertiesExample();
-
-        // Example 4: Incremental writing with segment optimization
-        await IncrementalWritingExample();
-
-        // Example 5: Writing different data types
-        await DataTypesExample();
-
-        // Example 6: Waveform data with metadata
-        await WaveformExample();
-
-        // Example 7: Using memory streams for in-memory TDMS
-        await InMemoryExample();
-
-        Console.WriteLine("All examples completed successfully!");
-    }
-
-    static async Task BasicUsageExample()
-    {
-        Console.WriteLine("Example 1: Basic Usage");
-        
-        var options = new TdmsWriterOptions
+        static void Main(string[] args)
         {
-            Version = 4713,
-            CreateIndexFile = true // Create index file for faster reading
-        };
+            Console.WriteLine("TDMS File Writer Demo");
+            Console.WriteLine("=====================\n");
 
-        using (var writer = new TdmsWriter("example1.tdms", options))
-        {
-            // Write root properties
-            writer.WriteRoot(new Dictionary<string, object>
-            {
-                ["Author"] = "TDMS.NET",
-                ["Description"] = "Basic example file",
-                ["DateTime"] = DateTime.UtcNow
-            });
+            // Run different demos
+            BasicUsageDemo();
+            PerformanceDemo();
+            WaveformDemo();
+            IncrementalWriteDemo();
+            DataTypesDemo();
 
-            // Write a group
-            writer.WriteGroup("Measurements", new Dictionary<string, object>
-            {
-                ["SamplingRate"] = 1000.0,
-                ["Equipment"] = "DAQ-9000"
-            });
-
-            // Write channel data
-            var data = new double[1000];
-            for (int i = 0; i < data.Length; i++)
-                data[i] = Math.Sin(2 * Math.PI * i / 100.0);
-
-            writer.WriteChannel<double>("Measurements", "Sine Wave", data, new Dictionary<string, object>
-            {
-                ["Unit"] = "Volts",
-                ["Sensor"] = "Voltage Probe A1"
-            });
-
-            // Write segment (automatic on dispose, but can be called explicitly)
-            writer.WriteSegment();
+            Console.WriteLine("\nAll demos completed successfully!");
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
         }
 
-        Console.WriteLine("  Created: example1.tdms and example1.tdms_index\n");
-    }
-
-    static async Task HighPerformanceStreamingExample()
-    {
-        Console.WriteLine("Example 2: High-Performance Streaming");
-        
-        var sw = Stopwatch.StartNew();
-        const int numSamples = 1_000_000;
-        const int numChannels = 10;
-
-        using (var writer = new TdmsWriter("example2_streaming.tdms"))
+        static void BasicUsageDemo()
         {
-            writer.WriteRoot(new Dictionary<string, object>
-            {
-                ["Title"] = "High-Performance Streaming Test",
-                ["SampleCount"] = numSamples * numChannels
-            });
+            Console.WriteLine("1. Basic Usage Demo");
+            Console.WriteLine("-------------------");
 
-            writer.WriteGroup("StreamData", new Dictionary<string, object>
+            using (var writer = new TdmsFileWriter("basic_demo.tdms"))
             {
-                ["ChannelCount"] = numChannels,
-                ["TotalSamples"] = numSamples
-            });
+                // Set file properties
+                writer.SetFileProperty("title", "Basic TDMS Demo");
+                writer.SetFileProperty("author", "TDMS Writer Library");
+                writer.SetFileProperty("timestamp", TdmsTimestamp.Now);
 
-            // Generate and write large datasets efficiently
-            var buffer = new float[numSamples];
-            var random = new Random(42);
+                // Create a group with properties
+                var group = writer.CreateGroup("Measurements");
+                group.SetProperty("description", "Temperature and pressure measurements");
+                group.SetProperty("location", "Lab A");
+                group.SetProperty("test_id", 12345);
 
-            for (int ch = 0; ch < numChannels; ch++)
+                // Create channels
+                var tempChannel = writer.CreateChannel("Measurements", "Temperature", TdmsDataType.DoubleFloat);
+                var pressureChannel = writer.CreateChannel("Measurements", "Pressure", TdmsDataType.SingleFloat);
+
+                // Set channel properties
+                tempChannel.SetProperty("unit_string", "°C");
+                tempChannel.SetProperty("sensor_type", "Thermocouple Type K");
+                
+                pressureChannel.SetProperty("unit_string", "bar");
+                pressureChannel.SetProperty("sensor_type", "Piezoelectric");
+
+                // Write some data
+                var random = new Random();
+                for (int i = 0; i < 100; i++)
+                {
+                    tempChannel.WriteValue(20.0 + random.NextDouble() * 10);
+                    pressureChannel.WriteValue((float)(1.0 + random.NextDouble() * 0.5));
+                }
+
+                // Write the segment to disk
+                writer.WriteSegment();
+
+                Console.WriteLine("✓ Created basic_demo.tdms with 2 channels and 100 samples each\n");
+            }
+        }
+
+        static void PerformanceDemo()
+        {
+            Console.WriteLine("2. Performance Demo");
+            Console.WriteLine("-------------------");
+
+            const int numSamples = 1_000_000;
+            const int batchSize = 10000;
+
+            using (var writer = new TdmsFileWriter("performance_demo.tdms"))
             {
-                // Fill buffer with simulated data
+                writer.SetFileProperty("title", "Performance Test");
+                writer.SetFileProperty("sample_count", numSamples);
+
+                var group = writer.CreateGroup("HighSpeed");
+                var channel = writer.CreateChannel("HighSpeed", "Data", TdmsDataType.DoubleFloat);
+                
+                channel.SetProperty("sampling_rate", 1000000.0);
+                channel.SetProperty("unit_string", "V");
+
+                var sw = Stopwatch.StartNew();
+
+                // Generate and write data in batches
+                var data = new double[batchSize];
+                var random = new Random();
+                
+                for (int batch = 0; batch < numSamples / batchSize; batch++)
+                {
+                    // Generate batch data
+                    for (int i = 0; i < batchSize; i++)
+                    {
+                        data[i] = Math.Sin(2 * Math.PI * i / 1000.0) + 0.1 * random.NextDouble();
+                    }
+
+                    // Write using span for maximum performance
+                    channel.WriteValues(data.AsSpan());
+
+                    // Write segment every 10 batches to demonstrate incremental writing
+                    if ((batch + 1) % 10 == 0)
+                    {
+                        writer.WriteSegment();
+                        Console.Write($"\rProgress: {(batch + 1) * batchSize:N0} / {numSamples:N0} samples");
+                    }
+                }
+
+                writer.Flush();
+                sw.Stop();
+
+                var throughput = numSamples * sizeof(double) / (sw.ElapsedMilliseconds / 1000.0) / (1024 * 1024);
+                Console.WriteLine($"\n✓ Wrote {numSamples:N0} samples in {sw.ElapsedMilliseconds}ms");
+                Console.WriteLine($"  Throughput: {throughput:F2} MB/s\n");
+            }
+        }
+
+        static void WaveformDemo()
+        {
+            Console.WriteLine("3. Waveform Demo");
+            Console.WriteLine("----------------");
+
+            using (var writer = new TdmsFileWriter("waveform_demo.tdms"))
+            {
+                writer.SetFileProperty("title", "Waveform Data");
+
+                var group = writer.CreateGroup("Waveforms");
+                
+                // Create multiple waveform channels
+                var sineChannel = writer.CreateChannel("Waveforms", "Sine", TdmsDataType.DoubleFloat);
+                var cosineChannel = writer.CreateChannel("Waveforms", "Cosine", TdmsDataType.DoubleFloat);
+                var squareChannel = writer.CreateChannel("Waveforms", "Square", TdmsDataType.DoubleFloat);
+
+                // Set waveform properties (standard TDMS waveform attributes)
+                var startTime = TdmsTimestamp.Now;
+                double samplingRate = 10000.0; // 10 kHz
+                int numSamples = 10000;
+
+                foreach (var channel in new[] { sineChannel, cosineChannel, squareChannel })
+                {
+                    channel.SetProperty("wf_start_time", startTime);
+                    channel.SetProperty("wf_increment", 1.0 / samplingRate);
+                    channel.SetProperty("wf_samples", numSamples);
+                }
+
+                // Generate waveforms
+                var sineData = new double[numSamples];
+                var cosineData = new double[numSamples];
+                var squareData = new double[numSamples];
+
                 for (int i = 0; i < numSamples; i++)
                 {
-                    buffer[i] = (float)(random.NextDouble() * 10.0 + ch * 100);
+                    double t = i / samplingRate;
+                    sineData[i] = Math.Sin(2 * Math.PI * 50 * t); // 50 Hz sine
+                    cosineData[i] = Math.Cos(2 * Math.PI * 50 * t); // 50 Hz cosine
+                    squareData[i] = Math.Sign(Math.Sin(2 * Math.PI * 25 * t)); // 25 Hz square
                 }
 
-                writer.WriteChannel<float>($"StreamData", $"Channel_{ch:D2}", buffer.AsSpan(), 
-                    new Dictionary<string, object>
-                    {
-                        ["ChannelIndex"] = ch,
-                        ["DataType"] = "Float32"
-                    });
-            }
-
-            writer.WriteSegment();
-        }
-
-        sw.Stop();
-        var totalMB = (numSamples * numChannels * sizeof(float)) / (1024.0 * 1024.0);
-        Console.WriteLine($"  Written {totalMB:F2} MB in {sw.ElapsedMilliseconds} ms");
-        Console.WriteLine($"  Throughput: {totalMB / sw.Elapsed.TotalSeconds:F2} MB/s\n");
-    }
-
-    static async Task PropertiesExample()
-    {
-        Console.WriteLine("Example 3: Properties at All Levels");
-        
-        using (var writer = new TdmsWriter("example3_properties.tdms"))
-        {
-            // File-level properties
-            writer.WriteRoot(new Dictionary<string, object>
-            {
-                ["FileVersion"] = "1.0.0",
-                ["CreatedBy"] = Environment.UserName,
-                ["Machine"] = Environment.MachineName,
-                ["Timestamp"] = DateTime.Now,
-                ["ProcessID"] = Environment.ProcessId
-            });
-
-            // Group-level properties
-            writer.WriteGroup("TestResults", new Dictionary<string, object>
-            {
-                ["TestID"] = "123",
-                ["TestType"] = "Performance",
-                ["PassCriteria"] = 95.5,
-                ["Temperature"] = 23.5,
-                ["Humidity"] = 45.0,
-                ["Passed"] = true
-            });
-
-            // Channel with various property types
-            var testData = new[] { 1.1, 2.2, 3.3, 4.4, 5.5 };
-            writer.WriteChannel<double>("TestResults", "Measurements", testData.AsSpan(),
-                new Dictionary<string, object>
-                {
-                    ["Min"] = 1.1,
-                    ["Max"] = 5.5,
-                    ["Mean"] = 3.3,
-                    ["StdDev"] = 1.58113883,
-                    ["Unit"] = "mm",
-                    ["CalibrationDate"] = DateTime.Parse("2024-01-15"),
-                    ["CalibrationValid"] = true,
-                    ["SensorID"] = 12345L,
-                    ["Precision"] = (byte)3
-                });
-
-            writer.WriteSegment();
-        }
-
-        Console.WriteLine("  Created file with properties at file, group, and channel levels\n");
-    }
-
-    static async Task IncrementalWritingExample()
-    {
-        Console.WriteLine("Example 4: Incremental Writing with Segments");
-        
-        var options = new TdmsWriterOptions
-        {
-            Version = 4713,
-            CreateIndexFile = true,
-            BufferSize = 131072 // 128KB buffer
-        };
-
-        using (var writer = new TdmsWriter("example4_incremental.tdms", options))
-        {
-            // Initial metadata
-            writer.WriteRoot(new Dictionary<string, object>
-            {
-                ["ExperimentName"] = "Incremental Data Acquisition"
-            });
-
-            writer.WriteGroup("Sensors", new Dictionary<string, object>
-            {
-                ["Location"] = "Lab A"
-            });
-
-            // Simulate real-time data acquisition in chunks
-            var random = new Random();
-            const int chunkSize = 100;
-            const int numChunks = 10;
-            bool should_segment = false;
-
-            for (int chunk = 0; chunk < numChunks; chunk++)
-            {
-                if (should_segment)
-                {
-                    writer.BeginSegment();
-                    should_segment = true;
-                }
-
-                // Generate chunk data
-                var tempData = new double[chunkSize];
-                var pressureData = new float[chunkSize];
-
-                for (int i = 0; i < chunkSize; i++)
-                {
-                    tempData[i] = 20.0 + random.NextDouble() * 5.0;
-                    pressureData[i] = (float)(100.0 + random.NextDouble() * 10.0);
-                }
-
-                // Write chunk
-                writer.WriteChannel<double>("Sensors", "Temperature", tempData.AsSpan(), 
-                    chunk == 0 ? new Dictionary<string, object> { ["Unit"] = "°C" } : null);
-                
-                writer.WriteChannel<float>("Sensors", "Pressure", pressureData.AsSpan(),
-                    chunk == 0 ? new Dictionary<string, object> { ["Unit"] = "kPa" } : null);
+                // Write all data
+                sineChannel.WriteValues(sineData);
+                cosineChannel.WriteValues(cosineData);
+                squareChannel.WriteValues(squareData);
 
                 writer.WriteSegment();
 
-                Console.WriteLine($"    Written chunk {chunk + 1}/{numChunks}");
-                
-                // Simulate delay between acquisitions
-                await Task.Delay(10);
+                Console.WriteLine($"✓ Created waveform_demo.tdms with 3 waveforms, {numSamples} samples each\n");
             }
         }
 
-        Console.WriteLine("  Completed incremental writing\n");
-    }
-
-    static async Task DataTypesExample()
-    {
-        Console.WriteLine("Example 5: Different Data Types");
-        
-        using (var writer = new TdmsWriter("example5_datatypes.tdms"))
+        static void IncrementalWriteDemo()
         {
-            writer.WriteRoot(new Dictionary<string, object>
+            Console.WriteLine("4. Incremental Write Demo");
+            Console.WriteLine("-------------------------");
+
+            using (var writer = new TdmsFileWriter("incremental_demo.tdms"))
             {
-                ["Description"] = "Demonstrating all supported data types"
-            });
+                writer.SetFileProperty("title", "Incremental Writing Demo");
 
-            writer.WriteGroup("DataTypes");
+                var group = writer.CreateGroup("RealTimeData");
+                var channel1 = writer.CreateChannel("RealTimeData", "Sensor1", TdmsDataType.DoubleFloat);
+                var channel2 = writer.CreateChannel("RealTimeData", "Sensor2", TdmsDataType.SingleFloat);
 
-            // Signed integers
-            writer.WriteChannel<sbyte>("DataTypes", "Int8", new sbyte[] { -128, 0, 127 });
-            writer.WriteChannel<short>("DataTypes", "Int16", new short[] { -32768, 0, 32767 });
-            writer.WriteChannel<int>("DataTypes", "Int32", new int[] { int.MinValue, 0, int.MaxValue });
-            writer.WriteChannel<long>("DataTypes", "Int64", new long[] { long.MinValue, 0, long.MaxValue });
+                Console.WriteLine("Simulating real-time data acquisition...");
 
-            // Unsigned integers
-            writer.WriteChannel<byte>("DataTypes", "UInt8", new byte[] { 0, 128, 255 });
-            writer.WriteChannel<ushort>("DataTypes", "UInt16", new ushort[] { 0, 32768, 65535 });
-            writer.WriteChannel<uint>("DataTypes", "UInt32", new uint[] { 0, 2147483648, uint.MaxValue });
-            writer.WriteChannel<ulong>("DataTypes", "UInt64", new ulong[] { 0, 9223372036854775808, ulong.MaxValue });
+                var random = new Random();
+                for (int iteration = 0; iteration < 5; iteration++)
+                {
+                    Thread.Sleep(100); // Simulate real-time delay
 
-            // Floating point
-            writer.WriteChannel<float>("DataTypes", "Float32", new float[] { -3.14159f, 0.0f, float.MaxValue });
-            writer.WriteChannel<double>("DataTypes", "Float64", new double[] { Math.PI, Math.E, double.MaxValue });
+                    // Simulate acquiring new data
+                    var samples = 100;
+                    for (int i = 0; i < samples; i++)
+                    {
+                        channel1.WriteValue(random.NextDouble() * 100);
+                        channel2.WriteValue((float)(random.NextDouble() * 50));
+                    }
 
-            // Boolean
-            writer.WriteChannel<bool>("DataTypes", "Boolean", new bool[] { true, false, true, false });
+                    // Write segment (demonstrates incremental metadata optimization)
+                    writer.WriteSegment();
 
-            // Strings
-            writer.WriteStringChannel("DataTypes", "Strings", new string[]
-            {
-                "Hello, TDMS!",
-                "Unicode: 你好 мир 🌍",
-                "Special chars: @#$%^&*()",
-                ""  // Empty string
-            });
+                    Console.WriteLine($"  Iteration {iteration + 1}: Wrote {samples} samples");
 
-            writer.WriteSegment();
-        }
+                    // Change a property occasionally to demonstrate metadata updates
+                    if (iteration == 2)
+                    {
+                        channel1.SetProperty("status", "Calibrated");
+                        Console.WriteLine("  → Updated channel property");
+                    }
+                }
 
-        Console.WriteLine("  Created file with all supported data types\n");
-    }
-
-    static async Task WaveformExample()
-    {
-        Console.WriteLine("Example 6: Waveform Data");
-        
-        using (var writer = new TdmsWriter("example6_waveform.tdms"))
-        {
-            writer.WriteRoot(new Dictionary<string, object>
-            {
-                ["Title"] = "Waveform Data Example"
-            });
-
-            writer.WriteGroup("Waveforms", new Dictionary<string, object>
-            {
-                ["AcquisitionRate"] = 10000.0,
-                ["Device"] = "NI-DAQ-6001"
-            });
-
-            // Generate waveform data
-            const int samples = 10000;
-            const double samplingRate = 10000.0;
-            const double frequency = 50.0; // 50 Hz signal
-            
-            var waveformData = new double[samples];
-            var startTime = DateTime.UtcNow;
-            
-            for (int i = 0; i < samples; i++)
-            {
-                double t = i / samplingRate;
-                waveformData[i] = 5.0 * Math.Sin(2 * Math.PI * frequency * t) + 
-                                  0.5 * Math.Sin(2 * Math.PI * frequency * 3 * t); // Add harmonic
+                Console.WriteLine("✓ Incremental writing completed\n");
             }
-
-            // Use the waveform extension method
-            writer.WriteWaveform<double>("Waveforms", "Signal_50Hz", waveformData.AsSpan(), 
-                startTime, 1.0 / samplingRate,
-                new Dictionary<string, object>
-                {
-                    ["SignalType"] = "Voltage",
-                    ["Unit"] = "V",
-                    ["Frequency"] = frequency
-                });
-
-            // Write another waveform with noise
-            var noisyData = new double[samples];
-            var random = new Random();
-            
-            for (int i = 0; i < samples; i++)
-            {
-                double t = i / samplingRate;
-                noisyData[i] = 3.0 * Math.Sin(2 * Math.PI * 25.0 * t) + 
-                              (random.NextDouble() - 0.5) * 0.5; // Add noise
-            }
-
-            writer.WriteWaveform<double>("Waveforms", "NoisySignal_25Hz", noisyData.AsSpan(),
-                startTime, 1.0 / samplingRate,
-                new Dictionary<string, object>
-                {
-                    ["SignalType"] = "Voltage",
-                    ["Unit"] = "V",
-                    ["Frequency"] = 25.0,
-                    ["NoiseLevel"] = 0.5
-                });
-
-            writer.WriteSegment();
         }
 
-        Console.WriteLine("  Created waveform file with proper metadata\n");
-    }
-
-    static async Task InMemoryExample()
-    {
-        Console.WriteLine("Example 7: In-Memory TDMS");
-        
-        // Create TDMS file in memory
-        using var dataStream = new MemoryStream();
-        using var indexStream = new MemoryStream();
-        
-        using (var writer = new TdmsWriter(dataStream, indexStream, ownsStreams: false))
+        static void DataTypesDemo()
         {
-            writer.WriteRoot(new Dictionary<string, object>
+            Console.WriteLine("5. Data Types Demo");
+            Console.WriteLine("------------------");
+
+            using (var writer = new TdmsFileWriter("datatypes_demo.tdms"))
             {
-                ["InMemory"] = true,
-                ["Purpose"] = "Testing"
-            });
+                writer.SetFileProperty("title", "All Supported Data Types");
 
-            writer.WriteGroup("TestData");
+                var group = writer.CreateGroup("DataTypes");
 
-            // Write some test data
-            var data = new int[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
-            writer.WriteChannel<int>("TestData", "Counter", data.AsSpan(),
-                new Dictionary<string, object>
+                // Integer types
+                var int8Channel = writer.CreateChannel("DataTypes", "Int8", TdmsDataType.I8);
+                var int16Channel = writer.CreateChannel("DataTypes", "Int16", TdmsDataType.I16);
+                var int32Channel = writer.CreateChannel("DataTypes", "Int32", TdmsDataType.I32);
+                var int64Channel = writer.CreateChannel("DataTypes", "Int64", TdmsDataType.I64);
+
+                var uint8Channel = writer.CreateChannel("DataTypes", "UInt8", TdmsDataType.U8);
+                var uint16Channel = writer.CreateChannel("DataTypes", "UInt16", TdmsDataType.U16);
+                var uint32Channel = writer.CreateChannel("DataTypes", "UInt32", TdmsDataType.U32);
+                var uint64Channel = writer.CreateChannel("DataTypes", "UInt64", TdmsDataType.U64);
+
+                // Floating point types
+                var floatChannel = writer.CreateChannel("DataTypes", "Float", TdmsDataType.SingleFloat);
+                var doubleChannel = writer.CreateChannel("DataTypes", "Double", TdmsDataType.DoubleFloat);
+
+                // Other types
+                var boolChannel = writer.CreateChannel("DataTypes", "Boolean", TdmsDataType.Boolean);
+                var timestampChannel = writer.CreateChannel("DataTypes", "Timestamp", TdmsDataType.TimeStamp);
+                var stringChannel = writer.CreateChannel("DataTypes", "String", TdmsDataType.String);
+
+                // Write sample data for each type
+                for (int i = 0; i < 10; i++)
                 {
-                    ["Description"] = "Simple counter"
+                    int8Channel.WriteValue((sbyte)i);
+                    int16Channel.WriteValue((short)(i * 100));
+                    int32Channel.WriteValue(i * 10000);
+                    int64Channel.WriteValue((long)i * 1000000);
+
+                    uint8Channel.WriteValue((byte)i);
+                    uint16Channel.WriteValue((ushort)(i * 100));
+                    uint32Channel.WriteValue((uint)(i * 10000));
+                    uint64Channel.WriteValue((ulong)i * 1000000);
+
+                    floatChannel.WriteValue((float)(i * 0.1));
+                    doubleChannel.WriteValue(i * 0.01);
+
+                    boolChannel.WriteValue(i % 2 == 0);
+                    timestampChannel.WriteValue(new TdmsTimestamp(DateTime.UtcNow.AddSeconds(i)));
+                }
+
+                // String data
+                stringChannel.WriteStrings(new[]
+                {
+                    "First string",
+                    "Second string with special chars: üöä",
+                    "Third string",
+                    "Fourth string with emoji: 🚀",
+                    "Fifth and final string"
                 });
 
-            writer.WriteSegment();
+                writer.WriteSegment();
+
+                Console.WriteLine("✓ Created datatypes_demo.tdms with all supported data types");
+                Console.WriteLine("  - 8 integer type channels");
+                Console.WriteLine("  - 2 floating point channels");
+                Console.WriteLine("  - 1 boolean channel");
+                Console.WriteLine("  - 1 timestamp channel");
+                Console.WriteLine("  - 1 string channel\n");
+            }
         }
-
-        Console.WriteLine($"  Data stream size: {dataStream.Length} bytes");
-        Console.WriteLine($"  Index stream size: {indexStream.Length} bytes");
-
-        // Optionally write to disk
-        await File.WriteAllBytesAsync("example7_from_memory.tdms", dataStream.ToArray());
-        await File.WriteAllBytesAsync("example7_from_memory.tdms_index", indexStream.ToArray());
-        
-        Console.WriteLine("  Saved in-memory TDMS to disk\n");
     }
 }

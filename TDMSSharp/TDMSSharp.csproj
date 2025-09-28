@@ -2,8 +2,23 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    
+    <!-- Package Information -->
+    <PackageId>TdmsWriter</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>TDMS Writer Library</Authors>
+    <Description>High-performance TDMS file format writer with incremental metadata optimization</Description>
+    <PackageTags>TDMS;NI;LabVIEW;Data;Streaming;High-Performance</PackageTags>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
   </PropertyGroup>
 
 </Project>
