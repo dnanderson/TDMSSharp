@@ -127,20 +127,20 @@ namespace TDMSSharp
         // <summary>
         /// Write channel data with optimal performance (array overload)
         /// </summary>
-        public void WriteChannel<T>(string groupName, string channelName, T[] data, IDictionary<string, object>? properties = null)
-            where T : unmanaged
-        {
-            WriteChannel(groupName, channelName, new ReadOnlySpan<T>(data), properties);
-        }
+        // public void WriteChannel<T>(string groupName, string channelName, T[] data, IDictionary<string, object>? properties = null)
+        //     where T : unmanaged
+        // {
+        //     WriteChannel(groupName, channelName, new ReadOnlySpan<T>(data), properties);
+        // }
 
-        /// <summary>
-        /// Write channel data with optimal performance (span overload)
-        /// </summary>
-        public void WriteChannel<T>(string groupName, string channelName, Span<T> data, IDictionary<string, object>? properties = null)
-            where T : unmanaged
-        {
-            WriteChannel(groupName, channelName, (ReadOnlySpan<T>)data, properties);
-        }
+        // /// <summary>
+        // /// Write channel data with optimal performance (span overload)
+        // /// </summary>
+        // public void WriteChannel<T>(string groupName, string channelName, Span<T> data, IDictionary<string, object>? properties = null)
+        //     where T : unmanaged
+        // {
+        //     WriteChannel(groupName, channelName, (ReadOnlySpan<T>)data, properties);
+        // }
 
         /// <summary>
         /// Write channel data with optimal performance

@@ -25,6 +25,8 @@ class EfficientUsageExample
         // Example 5: Performance comparison
         await Example5_PerformanceComparison();
 
+        await DataTypesExample();
+
         Console.WriteLine("\nAll examples completed!");
     }
 
@@ -57,7 +59,7 @@ class EfficientUsageExample
 
             // First write includes channel properties
             var initialData = new double[] { 1.0, 2.0, 3.0 };
-            writer.WriteChannel("Sensors", "Temperature", initialData.AsSpan(),
+            writer.WriteChannel<double>("Sensors", "Temperature", initialData.AsSpan(),
                 new Dictionary<string, object> { ["Unit"] = "°C" });
             
             writer.WriteSegment(); // First segment with full metadata
@@ -79,7 +81,7 @@ class EfficientUsageExample
                 }
                 
                 // Write without creating new objects or properties
-                writer.WriteChannel("Sensors", "Temperature", buffer.AsSpan());
+                writer.WriteChannel<double>("Sensors", "Temperature", buffer.AsSpan());
                 writer.WriteSegment();
             }
             
@@ -104,7 +106,7 @@ class EfficientUsageExample
             
             // Initial write with structure
             var data = new float[] { 1.0f, 2.0f, 3.0f };
-            writer.WriteChannel("Data", "Signal", data.AsSpan(),
+            writer.WriteChannel<float>("Data", "Signal", data.AsSpan(),
                 new Dictionary<string, object> { ["Unit"] = "V" });
             writer.WriteSegment();
             
@@ -118,7 +120,7 @@ class EfficientUsageExample
             for (int i = 0; i < 50; i++)
             {
                 Array.Fill(buffer, i * 0.1f);
-                writer.WriteChannel("Data", "Signal", buffer.AsSpan());
+                writer.WriteChannel<float>("Data", "Signal", buffer.AsSpan());
                 writer.WriteSegment();
             }
         }
@@ -126,6 +128,64 @@ class EfficientUsageExample
         var fileInfo = new FileInfo("example2_rawonly.tdms");
         Console.WriteLine($"  File size: {fileInfo.Length:N0} bytes");
         Console.WriteLine($"  Optimization: Raw data appended directly after first segment\n");
+    }
+
+    static async Task DataTypesExample()
+    {
+        Console.WriteLine("Example: Different Data Types");
+        
+        using (var writer = new TdmsWriter("example5_datatypes.tdms"))
+        {
+            writer.BeginSegment();
+            writer.WriteRoot(new Dictionary<string, object>
+            {
+                ["Description"] = "Demonstrating all supported data types"
+            });
+
+            writer.WriteGroup("DataTypes");
+
+            // Signed integers
+            writer.WriteChannel<sbyte>("DataTypes", "Int8", new sbyte[] { -128, 0, 127 });
+            writer.WriteChannel<short>("DataTypes", "Int16", new short[] { -32768, 0, 32767 });
+            writer.WriteChannel<int>("DataTypes", "Int32", new int[] { int.MinValue, 0, int.MaxValue });
+            writer.WriteChannel<long>("DataTypes", "Int64", new long[] { long.MinValue, 0, long.MaxValue });
+
+            // Unsigned integers
+            writer.WriteChannel<byte>("DataTypes", "UInt8", new byte[] { 0, 128, 255 });
+            writer.WriteChannel<ushort>("DataTypes", "UInt16", new ushort[] { 0, 32768, 65535 });
+            writer.WriteChannel<uint>("DataTypes", "UInt32", new uint[] { 0, 2147483648, uint.MaxValue });
+            writer.WriteChannel<ulong>("DataTypes", "UInt64", new ulong[] { 0, 9223372036854775808, ulong.MaxValue });
+
+            // Floating point
+            writer.WriteChannel<float>("DataTypes", "Float32", new float[] { -3.14159f, 0.0f, float.MaxValue });
+            writer.WriteChannel<double>("DataTypes", "Float64", new double[] { Math.PI, Math.E, double.MaxValue });
+
+            // Boolean
+            writer.WriteChannel<bool>("DataTypes", "Boolean", new bool[] { true, false, true, false });
+
+            // Strings
+            writer.WriteStringChannel("DataTypes", "Strings", new string[]
+            {
+                "Hello, TDMS!",
+                "Unicode: 你好 мир 🌍",
+                "Special chars: @#$%^&*()",
+                ""  // Empty string
+            });
+
+            writer.WriteSegment();
+            writer.BeginSegment();
+            writer.WriteChannel<bool>("DataTypes", "Boolean", new bool[] { true, false, true, false });
+            writer.WriteStringChannel("DataTypes", "Strings", new string[]
+            {
+                "Hello, TDMS!",
+                "Unicode: 你好 мир 🌍",
+                "Special chars: @#$%^&*()",
+                ""  // Empty string
+            });
+            writer.WriteSegment();
+        }
+
+        Console.WriteLine("  Created file with all supported data types\n");
     }
 
     static async Task Example3_HighFrequencyAcquisition()
@@ -144,7 +204,7 @@ class EfficientUsageExample
         {
             const int numChannels = 16;
             const int samplesPerChannel = 10000;
-            
+
             // Setup metadata once
             writer.WriteRoot(new Dictionary<string, object>
             {
@@ -166,7 +226,7 @@ class EfficientUsageExample
 
             var sw = Stopwatch.StartNew();
             var random = new Random(42);
-            
+
             // Simulate 10 acquisitions
             for (int acq = 0; acq < 10; acq++)
             {
@@ -177,25 +237,25 @@ class EfficientUsageExample
                     {
                         buffers[ch][i] = ch * 10.0 + random.NextDouble();
                     }
-                    
+
                     // Write channel data
                     // First acquisition includes properties, subsequent ones don't
-                    var properties = acq == 0 
+                    var properties = acq == 0
                         ? new Dictionary<string, object> { ["ChannelIndex"] = ch }
                         : null;
-                    
-                    writer.WriteChannel("HighSpeed", $"AI{ch}", buffers[ch].AsSpan(), properties);
+
+                    writer.WriteChannel<double>("HighSpeed", $"AI{ch}", buffers[ch].AsSpan(), properties);
                 }
-                
+
                 writer.WriteSegment();
             }
-            
+
             sw.Stop();
-            
+
             var totalSamples = numChannels * samplesPerChannel * 10;
             var totalMB = (totalSamples * sizeof(double)) / (1024.0 * 1024.0);
             var throughput = totalMB / sw.Elapsed.TotalSeconds;
-            
+
             Console.WriteLine($"  Channels: {numChannels}");
             Console.WriteLine($"  Total samples: {totalSamples:N0}");
             Console.WriteLine($"  Data size: {totalMB:F2} MB");
@@ -291,9 +351,9 @@ class EfficientUsageExample
                     ? new Dictionary<string, object> { ["Format"] = "Status_[iter]_[index]: [state]" }
                     : null;
                 
-                writer.WriteChannel("Inputs", "Temperature", tempBuffer.AsSpan(), tempProps);
-                writer.WriteChannel("Inputs", "Pressure", pressureBuffer.AsSpan(), pressProps);
-                writer.WriteChannel("Inputs", "SystemOK", statusBuffer.AsSpan(), statusProps);
+                writer.WriteChannel<double>("Inputs", "Temperature", tempBuffer.AsSpan(), tempProps);
+                writer.WriteChannel<float>("Inputs", "Pressure", pressureBuffer.AsSpan(), pressProps);
+                writer.WriteChannel<bool>("Inputs", "SystemOK", statusBuffer.AsSpan(), statusProps);
                 writer.WriteStringChannel("Calculated", "Messages", messageBuffer.AsSpan(), msgProps);
                 
                 // Write waveform with proper metadata
@@ -337,7 +397,7 @@ class EfficientUsageExample
                 Array.Fill(data, i * 1.0f);
                 
                 // Inefficient: Writing properties every time forces new metadata
-                writer.WriteChannel("Test", "Data", data.AsSpan(),
+                writer.WriteChannel<float>("Test", "Data", data.AsSpan(),
                     new Dictionary<string, object> 
                     { 
                         ["Iteration"] = i,  // Changing property
@@ -358,7 +418,7 @@ class EfficientUsageExample
             var data = new float[numSamples / numWrites];
             
             // Write metadata once
-            writer.WriteChannel("Test", "Data", data.AsSpan(),
+            writer.WriteChannel<float>("Test", "Data", data.AsSpan(),
                 new Dictionary<string, object> 
                 { 
                     ["Created"] = DateTime.Now,
@@ -370,7 +430,7 @@ class EfficientUsageExample
             for (int i = 1; i < numWrites; i++)
             {
                 Array.Fill(data, i * 1.0f);
-                writer.WriteChannel("Test", "Data", data.AsSpan());
+                writer.WriteChannel<float>("Test", "Data", data.AsSpan());
                 writer.WriteSegment();
             }
         }
