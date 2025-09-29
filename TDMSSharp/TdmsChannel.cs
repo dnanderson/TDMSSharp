@@ -20,7 +20,7 @@ namespace TdmsSharp
         public string GroupName { get; }
         public TdmsDataType DataType => _dataType;
         public bool HasDataToWrite => _hasDataToWrite;
-        
+
         internal RawDataIndex RawDataIndex => _rawDataIndex;
         internal byte[] DataBuffer => _dataBuffer.ToArray();
 
@@ -34,7 +34,7 @@ namespace TdmsSharp
             GroupName = groupName;
             Name = name;
             _dataType = dataType;
-            
+
             var escapedGroup = groupName.Replace("'", "''");
             var escapedName = name.Replace("'", "''");
             Path = $"/'{escapedGroup}'/'{escapedName}'";
@@ -83,7 +83,7 @@ namespace TdmsSharp
                 return;
 
             ValidateDataType<T>();
-            
+
             // For unmanaged types, we can do a fast bulk copy
             var bytes = MemoryMarshal.AsBytes(values);
             _dataBuffer.AddRange(bytes.ToArray());
@@ -126,7 +126,8 @@ namespace TdmsSharp
             _dataBuffer.AddRange(concatenated);
 
             _rawDataIndex.NumberOfValues += (ulong)values.Length;
-            _rawDataIndex.TotalSizeInBytes = (ulong)_dataBuffer.Count;
+            // Total size includes both offset array and string data
+            _rawDataIndex.TotalSizeInBytes = (ulong)(_dataBuffer.Count);
             _hasDataToWrite = true;
         }
 
@@ -206,8 +207,8 @@ namespace TdmsSharp
         private byte[] GetTimestampBytes(TdmsTimestamp timestamp)
         {
             var bytes = new byte[16];
-            BitConverter.GetBytes(timestamp.Seconds).CopyTo(bytes, 0);
-            BitConverter.GetBytes(timestamp.Fractions).CopyTo(bytes, 8);
+            BitConverter.GetBytes(timestamp.Fractions).CopyTo(bytes, 0);
+            BitConverter.GetBytes(timestamp.Seconds).CopyTo(bytes, 8);
             return bytes;
         }
     }
