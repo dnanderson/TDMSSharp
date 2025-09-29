@@ -39,7 +39,6 @@ def print_tdms_channels(file_path):
                     data_type = channel.dtype
                     # Get the number of data points
                     num_values = len(channel)
-                    breakpoint()
                     
                     print(f"  [CHANNEL] '{channel.name}'")
                     print(f"    - Data Type: {data_type}")

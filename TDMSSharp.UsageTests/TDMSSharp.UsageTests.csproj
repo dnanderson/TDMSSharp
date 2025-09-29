@@ -7,16 +7,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
+    <ItemGroup>
     <!-- This reference links the console app to your TDMSSharp library -->
     <ProjectReference Include="..\TDMSSharp\TDMSSharp.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- This ensures the example.tdms file is copied to the build output directory -->
-    <None Update="..\example.tdms">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
 </Project>

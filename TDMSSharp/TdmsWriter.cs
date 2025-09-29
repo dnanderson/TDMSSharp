@@ -1,283 +1,483 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
+using System.Linq;
 using System.Text;
 
-namespace TDMSSharp
+namespace TdmsSharp
 {
     /// <summary>
-    /// Provides a low-level writer for TDMS files.
+    /// High-performance TDMS file writer with incremental metadata optimization
     /// </summary>
-    public class TdmsWriter
+    public class TdmsFileWriter : IDisposable
     {
-        private readonly BinaryWriter _writer;
-        private static readonly DateTime TdmsEpoch = new DateTime(1904, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        private readonly byte[] _writeBuffer = new byte[81920]; // 80KB buffer for better I/O
+        private const string TDMS_TAG = "TDSm";
+        private const string TDMS_INDEX_TAG = "TDSh";
+        private const uint TDMS_VERSION = 4713;
+        private const uint NO_RAW_DATA = 0xFFFFFFFF;
+        private const uint RAW_DATA_MATCHES_PREVIOUS = 0x00000000;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="TdmsWriter"/> class.
-        /// </summary>
-        /// <param name="stream">The stream to write the TDMS file to.</param>
-        public TdmsWriter(Stream stream)
+        private readonly FileStream _fileStream;
+        private readonly FileStream _indexStream;
+        private readonly BinaryWriter _fileWriter;
+        private readonly BinaryWriter _indexWriter;
+        private readonly string _filePath;
+        
+        private readonly TdmsFile _fileObject;
+        private readonly Dictionary<string, TdmsGroup> _groups = new();
+        private readonly Dictionary<string, TdmsChannel> _channels = new();
+        private readonly List<string> _channelOrder = new();
+        
+        private bool _isFirstSegment = true;
+        private long _currentSegmentStart = 0;
+        private bool _disposed = false;
+
+        public TdmsFileWriter(string filePath)
         {
-            _writer = new BinaryWriter(stream, Encoding.UTF8, true);
+            if (string.IsNullOrEmpty(filePath))
+                throw new ArgumentException("File path cannot be null or empty", nameof(filePath));
+
+            _filePath = filePath;
+            _fileObject = new TdmsFile();
+
+            // Create main file and index file
+            _fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, false);
+            _indexStream = new FileStream(filePath + "_index", FileMode.Create, FileAccess.Write, FileShare.Read, 4096, false);
+            
+            _fileWriter = new BinaryWriter(_fileStream, Encoding.UTF8, true);
+            _indexWriter = new BinaryWriter(_indexStream, Encoding.UTF8, true);
         }
 
         /// <summary>
-        /// Writes the specified <see cref="TdmsFile"/> object to the stream.
+        /// Set a property on the file object
         /// </summary>
-        /// <param name="file">The <see cref="TdmsFile"/> object to write.</param>
-        public void WriteFile(TdmsFile file)
+        public void SetFileProperty(string name, object value)
         {
-            // Reserve space for lead-in
-            _writer.BaseStream.Seek(28, SeekOrigin.Begin);
+            _fileObject.SetProperty(name, value);
+        }
 
-            long metaDataStart = _writer.BaseStream.Position;
-            WriteMetaData(file);
-            long metaDataLength = _writer.BaseStream.Position - metaDataStart;
-
-            long rawDataStart = _writer.BaseStream.Position;
-            foreach (var group in file.ChannelGroups)
+        /// <summary>
+        /// Create or get a group
+        /// </summary>
+        public TdmsGroup CreateGroup(string name)
+        {
+            if (!_groups.TryGetValue(name, out var group))
             {
-                foreach (var channel in group.Channels)
-                {
-                    if (channel.Data != null)
-                    {
-                        WriteRawDataOptimized(_writer, channel.Data);
-                    }
-                }
+                group = new TdmsGroup(name);
+                _groups[name] = group;
             }
-            long rawDataLength = _writer.BaseStream.Position - rawDataStart;
+            return group;
+        }
 
-            long nextSegmentOffset = metaDataLength + rawDataLength;
+        /// <summary>
+        /// Create a channel in a group
+        /// </summary>
+        public TdmsChannel CreateChannel(string groupName, string channelName, TdmsDataType dataType)
+        {
+            var group = CreateGroup(groupName);
+            var key = $"{groupName}/{channelName}";
+            
+            if (_channels.TryGetValue(key, out var existingChannel))
+            {
+                if (existingChannel.DataType != dataType)
+                    throw new InvalidOperationException($"Channel {key} already exists with different data type");
+                return existingChannel;
+            }
+
+            var channel = new TdmsChannel(groupName, channelName, dataType);
+            _channels[key] = channel;
+            _channelOrder.Add(key);
+            return channel;
+        }
+
+        /// <summary>
+        /// Get an existing channel
+        /// </summary>
+        public TdmsChannel? GetChannel(string groupName, string channelName)
+        {
+            var key = $"{groupName}/{channelName}";
+            _channels.TryGetValue(key, out var channel);
+            return channel;
+        }
+
+        /// <summary>
+        /// Write all buffered data to disk
+        /// </summary>
+        public void WriteSegment()
+        {
+            // Determine what needs to be written
+            var hasMetaData = DetermineIfMetaDataNeeded();
+            var hasRawData = _channels.Values.Any(c => c.HasDataToWrite);
+            var newObjectList = _isFirstSegment || HasChannelOrderChanged();
+
+            if (!hasMetaData && !hasRawData)
+                return; // Nothing to write
+
+            // If we have raw data but no metadata changes, we can append directly
+            if (!hasMetaData && hasRawData && !_isFirstSegment)
+            {
+                AppendRawDataOnly();
+                return;
+            }
+
+            // Write a new segment
+            WriteFullSegment(hasMetaData, hasRawData, newObjectList);
+        }
+
+        private bool DetermineIfMetaDataNeeded()
+        {
+            if (_isFirstSegment)
+                return true;
+
+            // Check for property changes
+            if (_fileObject.HasPropertiesModified)
+                return true;
+
+            if (_groups.Values.Any(g => g.HasPropertiesModified))
+                return true;
+
+            if (_channels.Values.Any(c => c.HasPropertiesModified || c.RawDataIndex.HasChanged))
+                return true;
+
+            return false;
+        }
+
+        private bool HasChannelOrderChanged()
+        {
+            // For simplicity, we'll track if channels were added
+            // In a full implementation, we'd track removals and reorderings
+            return false;
+        }
+
+        private void AppendRawDataOnly()
+        {
+            // This optimization allows appending raw data without writing new segment headers
+            // when metadata hasn't changed
+            
+            // Save current position
+            var originalPosition = _fileStream.Position;
+            
+            // Go back to update the segment size in the lead-in
+            _fileStream.Seek(_currentSegmentStart + 12, SeekOrigin.Begin);
+            
+            // Calculate new segment size
+            var rawDataSize = _channels.Values.Where(c => c.HasDataToWrite)
+                                              .Sum(c => (long)c.DataBuffer.Length);
+            var currentSegmentSize = _fileStream.Length - _currentSegmentStart - 28;
+            var newSegmentSize = currentSegmentSize + rawDataSize;
+            
+            _fileWriter.Write(newSegmentSize);
+            
+            // Return to end and write raw data
+            _fileStream.Seek(0, SeekOrigin.End);
+            WriteRawData();
+            
+            // Clear buffers
+            foreach (var channel in _channels.Values)
+            {
+                channel.ClearDataBuffer();
+            }
+        }
+
+        private void WriteFullSegment(bool hasMetaData, bool hasRawData, bool newObjectList)
+        {
+            _currentSegmentStart = _fileStream.Position;
+
+            // Calculate TOC flags
+            var tocFlags = TocFlags.None;
+            if (hasMetaData) tocFlags |= TocFlags.MetaData;
+            if (hasRawData) tocFlags |= TocFlags.RawData;
+            if (newObjectList) tocFlags |= TocFlags.NewObjList;
 
             // Write lead-in
-            _writer.BaseStream.Seek(0, SeekOrigin.Begin);
+            var metaDataSize = WriteLeadIn(tocFlags, true);
+            var indexMetaDataSize = WriteLeadIn(tocFlags, false);
 
-            uint tocMask = (1 << 1) | (1 << 2); // MetaData + NewObjList
-            if (rawDataLength > 0) tocMask |= (1 << 3);
-
-            _writer.Write(Encoding.ASCII.GetBytes("TDSm"));
-            _writer.Write(tocMask);
-            _writer.Write((uint)4713);
-            _writer.Write((ulong)nextSegmentOffset);
-            _writer.Write((ulong)metaDataLength);
-
-            _writer.BaseStream.Seek(0, SeekOrigin.End);
-        }
-
-        private void WriteMetaData(TdmsFile file)
-        {
-            uint objectCount = 1 + (uint)file.ChannelGroups.Count;
-            foreach (var group in file.ChannelGroups)
-                objectCount += (uint)group.Channels.Count;
-
-            _writer.Write(objectCount);
-
-            WriteObjectMetaData(_writer, "/", file.Properties);
-
-            foreach (var group in file.ChannelGroups)
+            // Write metadata
+            if (hasMetaData || newObjectList)
             {
-                WriteObjectMetaData(_writer, group.Path, group.Properties);
-                foreach (var channel in group.Channels)
-                {
-                    WriteObjectMetaData(_writer, channel.Path, channel.Properties, channel);
-                }
+                WriteMetaData(newObjectList);
             }
+
+            // Write raw data
+            if (hasRawData)
+            {
+                WriteRawData();
+            }
+
+            // Update segment size in lead-in
+            UpdateSegmentSize(_fileStream, _fileWriter, _currentSegmentStart, metaDataSize);
+            UpdateSegmentSize(_indexStream, _indexWriter, _currentSegmentStart, indexMetaDataSize);
+
+            // Clear modification flags and data buffers
+            ResetAllFlags();
+            _isFirstSegment = false;
         }
 
-        internal static void WriteObjectMetaData(BinaryWriter writer, string path, IList<TdmsProperty> properties, TdmsChannel? channel = null, ulong? valuesCount = null, object? data = null)
+        private long WriteLeadIn(TocFlags tocFlags, bool toMainFile)
         {
-            WriteString(writer, path);
+            var writer = toMainFile ? _fileWriter : _indexWriter;
+            var tag = toMainFile ? TDMS_TAG : TDMS_INDEX_TAG;
+            var stream = toMainFile ? _fileStream : _indexStream;
 
-            var numValues = valuesCount ?? channel?.NumberOfValues ?? 0;
+            // Write TDMS tag
+            writer.Write(Encoding.ASCII.GetBytes(tag));
 
-            if (channel != null)
+            // Write TOC
+            writer.Write((uint)tocFlags);
+
+            // Write version
+            writer.Write(TDMS_VERSION);
+
+            // Placeholder for segment length (will update later)
+            var segmentLengthPosition = stream.Position;
+            writer.Write((ulong)0);
+
+            // Placeholder for raw data offset
+            var rawDataOffsetPosition = stream.Position;
+            writer.Write((ulong)0);
+
+            return rawDataOffsetPosition + 8; // Return position after lead-in
+        }
+
+        private void WriteMetaData(bool newObjectList)
+        {
+            var objectsToWrite = new List<TdmsObject>();
+
+            // Determine which objects need to be written
+            if (newObjectList)
             {
-                // Use stack allocation for index
-                Span<byte> indexBuffer = stackalloc byte[32];
-                int indexLength = 0;
-
-                BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 4), (uint)channel.DataType);
-                indexLength += 4;
-                BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 4), (uint)1);
-                indexLength += 4;
-                BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), numValues);
-                indexLength += 8;
-
-                if (channel.DataType == TdsDataType.String)
-                {
-                    var totalBytes = 0UL;
-                    if (numValues > 0 && data != null)
-                    {
-                        var strings = (string[])data;
-                        totalBytes = (ulong)strings.Length * 4;
-                        foreach (var s in strings)
-                            totalBytes += (ulong)Encoding.UTF8.GetByteCount(s);
-                    }
-                    BitConverter.TryWriteBytes(indexBuffer.Slice(indexLength, 8), totalBytes);
-                    indexLength += 8;
-                }
-
-                writer.Write((uint)indexLength);
-                writer.Write(indexBuffer.Slice(0, indexLength));
+                // Write all objects
+                objectsToWrite.Add(_fileObject);
+                objectsToWrite.AddRange(_groups.Values);
+                objectsToWrite.AddRange(_channelOrder.Select(key => _channels[key]));
             }
             else
             {
-                writer.Write((uint)0xFFFFFFFF);
+                // Write only modified objects
+                if (_fileObject.HasPropertiesModified)
+                    objectsToWrite.Add(_fileObject);
+
+                objectsToWrite.AddRange(_groups.Values.Where(g => g.HasPropertiesModified));
+                objectsToWrite.AddRange(_channels.Values.Where(c => c.HasPropertiesModified || c.RawDataIndex.HasChanged));
             }
 
-            writer.Write((uint)properties.Count);
-            foreach (var prop in properties)
-            {
-                WriteString(writer, prop.Name);
-                writer.Write((uint)prop.DataType);
-                if (prop.Value != null)
-                    WriteValue(writer, prop.Value, prop.DataType);
-            }
+            // Write to both main file and index file
+            WriteMetaDataToStream(_fileWriter, objectsToWrite, true);
+            WriteMetaDataToStream(_indexWriter, objectsToWrite, false);
         }
 
-        internal static void WriteRawDataOptimized(BinaryWriter writer, object data)
+        private void WriteMetaDataToStream(BinaryWriter writer, List<TdmsObject> objects, bool includeRawDataIndex)
         {
-            var array = (Array)data;
-            if (array.Length == 0) return;
+            // Write number of objects
+            writer.Write((uint)objects.Count);
 
-            var elementType = array.GetType().GetElementType();
-            if (elementType == null) return;
-
-            if (elementType.IsPrimitive && elementType != typeof(bool))
+            foreach (var obj in objects)
             {
-                // Fast path for primitive types using Buffer.BlockCopy
-                var elementSize = Marshal.SizeOf(elementType);
-                var totalBytes = array.Length * elementSize;
+                // Write object path
+                WriteString(writer, obj.Path);
 
-                // Use pooled buffer for large arrays
-                if (totalBytes > 81920)
+                // Write raw data index
+                if (obj is TdmsChannel channel && includeRawDataIndex)
                 {
-                    var buffer = ArrayPool<byte>.Shared.Rent(totalBytes);
-                    try
-                    {
-                        Buffer.BlockCopy(array, 0, buffer, 0, totalBytes);
-                        writer.Write(buffer, 0, totalBytes);
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.Return(buffer);
-                    }
+                    WriteRawDataIndex(writer, channel);
                 }
                 else
                 {
-                    var buffer = new byte[totalBytes];
-                    Buffer.BlockCopy(array, 0, buffer, 0, totalBytes);
-                    writer.Write(buffer);
+                    writer.Write(NO_RAW_DATA);
                 }
+
+                // Write properties
+                WriteProperties(writer, obj);
             }
-            else if (elementType == typeof(string))
+        }
+
+        private void WriteRawDataIndex(BinaryWriter writer, TdmsChannel channel)
+        {
+            var index = channel.RawDataIndex;
+
+            if (!channel.HasDataToWrite)
             {
-                WriteStringArray(writer, (string[])data);
+                writer.Write(NO_RAW_DATA);
+                return;
             }
-            else if (elementType == typeof(bool))
+
+            if (!index.HasChanged && !_isFirstSegment)
             {
-                foreach (var b in (bool[])data)
-                    writer.Write((byte)(b ? 1 : 0));
+                writer.Write(RAW_DATA_MATCHES_PREVIOUS);
+                return;
             }
-            else if (elementType == typeof(DateTime))
+
+            // Write index length
+            writer.Write((uint)20); // Fixed size for non-string types
+
+            // Write data type
+            writer.Write((uint)index.DataType);
+
+            // Write array dimension (always 1)
+            writer.Write((uint)1);
+
+            // Write number of values
+            writer.Write(index.NumberOfValues);
+
+            // For strings, write total size
+            if (index.DataType == TdmsDataType.String)
             {
-                foreach (var dt in (DateTime[])data)
+                writer.Write(index.TotalSizeInBytes);
+            }
+        }
+
+        private void WriteProperties(BinaryWriter writer, TdmsObject obj)
+        {
+            var properties = obj.Properties;
+            
+            if (_isFirstSegment || obj.HasPropertiesModified)
+            {
+                writer.Write((uint)properties.Count);
+                
+                foreach (var prop in properties.Values)
                 {
-                    WriteTimestamp(writer, dt);
+                    WriteString(writer, prop.Name);
+                    writer.Write((uint)prop.DataType);
+                    WritePropertyValue(writer, prop);
                 }
             }
             else
             {
-                throw new NotSupportedException($"Writing {elementType} is not supported.");
+                writer.Write((uint)0);
             }
         }
 
-        private static void WriteStringArray(BinaryWriter writer, string[] strings)
+        private void WritePropertyValue(BinaryWriter writer, TdmsProperty property)
         {
-            var totalStringBytes = 0;
-            foreach (var s in strings)
-                totalStringBytes += Encoding.UTF8.GetByteCount(s);
-
-            var offsetBuffer = ArrayPool<byte>.Shared.Rent(strings.Length * 4);
-            var stringBuffer = ArrayPool<byte>.Shared.Rent(totalStringBytes);
-
-            try
+            switch (property.DataType)
             {
-                uint currentOffset = 0;
-                var stringBufferPos = 0;
+                case TdmsDataType.I8:
+                    writer.Write((sbyte)property.Value);
+                    break;
+                case TdmsDataType.I16:
+                    writer.Write((short)property.Value);
+                    break;
+                case TdmsDataType.I32:
+                    writer.Write((int)property.Value);
+                    break;
+                case TdmsDataType.I64:
+                    writer.Write((long)property.Value);
+                    break;
+                case TdmsDataType.U8:
+                    writer.Write((byte)property.Value);
+                    break;
+                case TdmsDataType.U16:
+                    writer.Write((ushort)property.Value);
+                    break;
+                case TdmsDataType.U32:
+                    writer.Write((uint)property.Value);
+                    break;
+                case TdmsDataType.U64:
+                    writer.Write((ulong)property.Value);
+                    break;
+                case TdmsDataType.SingleFloat:
+                    writer.Write((float)property.Value);
+                    break;
+                case TdmsDataType.DoubleFloat:
+                    writer.Write((double)property.Value);
+                    break;
+                case TdmsDataType.String:
+                    WriteString(writer, (string)property.Value);
+                    break;
+                case TdmsDataType.Boolean:
+                    writer.Write((byte)((bool)property.Value ? 1 : 0));
+                    break;
+                case TdmsDataType.TimeStamp:
+                    var ts = (TdmsTimestamp)property.Value;
+                    writer.Write(ts.Seconds);
+                    writer.Write(ts.Fractions);
+                    break;
+                default:
+                    throw new NotSupportedException($"Property type {property.DataType} is not supported");
+            }
+        }
 
-                for (int i = 0; i < strings.Length; i++)
+        private void WriteRawData()
+        {
+            // Write raw data in channel order (non-interleaved)
+            foreach (var key in _channelOrder)
+            {
+                var channel = _channels[key];
+                if (channel.HasDataToWrite)
                 {
-                    currentOffset += (uint)Encoding.UTF8.GetByteCount(strings[i]);
-                    BitConverter.TryWriteBytes(offsetBuffer.AsSpan(i * 4, 4), currentOffset);
-                    var byteCount = Encoding.UTF8.GetBytes(strings[i], 0, strings[i].Length, stringBuffer, stringBufferPos);
-                    stringBufferPos += byteCount;
+                    var data = channel.DataBuffer;
+                    _fileWriter.Write(data);
                 }
-
-                writer.Write(offsetBuffer, 0, strings.Length * 4);
-                writer.Write(stringBuffer, 0, stringBufferPos);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(offsetBuffer);
-                ArrayPool<byte>.Shared.Return(stringBuffer);
             }
         }
 
-        internal static void WriteRawData(BinaryWriter writer, object data, TdsDataType dataType)
+        private void WriteString(BinaryWriter writer, string value)
         {
-            WriteRawDataOptimized(writer, data);
-        }
-
-        internal static void WriteString(BinaryWriter writer, string s)
-        {
-            var bytes = Encoding.UTF8.GetBytes(s);
+            var bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
             writer.Write((uint)bytes.Length);
             writer.Write(bytes);
         }
 
-        private static void WriteTimestamp(BinaryWriter writer, DateTime dt)
+        private void UpdateSegmentSize(FileStream stream, BinaryWriter writer, long segmentStart, long metaDataEnd)
         {
-            var timestamp = dt.ToUniversalTime();
-            var timespan = timestamp - TdmsEpoch;
-            long seconds = (long)timespan.TotalSeconds;
-            var ticks = timespan.Ticks % TimeSpan.TicksPerSecond;
-            var fractions = (ulong)((new System.Numerics.BigInteger(ticks) << 64) / TimeSpan.TicksPerSecond);
-            writer.Write(fractions);
-            writer.Write(seconds);
+            var currentPosition = stream.Position;
+            var segmentSize = currentPosition - segmentStart - 28; // 28 = lead-in size
+            var rawDataOffset = metaDataEnd - segmentStart - 28;
+
+            // Update segment length
+            stream.Seek(segmentStart + 12, SeekOrigin.Begin);
+            writer.Write((ulong)segmentSize);
+
+            // Update raw data offset
+            writer.Write((ulong)rawDataOffset);
+
+            // Return to end
+            stream.Seek(currentPosition, SeekOrigin.Begin);
         }
 
-        internal static void WriteValue(BinaryWriter writer, object value, TdsDataType dataType)
+        private void ResetAllFlags()
         {
-            switch (dataType)
+            _fileObject.ResetModifiedFlags();
+            foreach (var group in _groups.Values)
             {
-                case TdsDataType.I8: writer.Write((sbyte)value); break;
-                case TdsDataType.I16: writer.Write((short)value); break;
-                case TdsDataType.I32: writer.Write((int)value); break;
-                case TdsDataType.I64: writer.Write((long)value); break;
-                case TdsDataType.U8: writer.Write((byte)value); break;
-                case TdsDataType.U16: writer.Write((ushort)value); break;
-                case TdsDataType.U32: writer.Write((uint)value); break;
-                case TdsDataType.U64: writer.Write((ulong)value); break;
-                case TdsDataType.SingleFloat: writer.Write((float)value); break;
-                case TdsDataType.DoubleFloat: writer.Write((double)value); break;
-                case TdsDataType.String: WriteString(writer, (string)value); break;
-                case TdsDataType.Boolean: writer.Write((bool)value); break;
-                case TdsDataType.TimeStamp:
-                    var timestamp = (DateTime)value;
-                    var timespan = timestamp.ToUniversalTime() - TdmsEpoch;
-                    long seconds = (long)timespan.TotalSeconds;
-                    var fractions = (ulong)((timespan.Ticks % TimeSpan.TicksPerSecond) *
-                                           (1.0 / TimeSpan.TicksPerSecond * Math.Pow(2, 64)));
-                    writer.Write(fractions);
-                    writer.Write(seconds);
-                    break;
-                default:
-                    throw new NotSupportedException($"Data type {dataType} not supported.");
+                group.ResetModifiedFlags();
+            }
+            foreach (var channel in _channels.Values)
+            {
+                channel.ClearDataBuffer();
+                channel.ResetModifiedFlags();
+            }
+        }
+
+        /// <summary>
+        /// Flush all pending writes to disk
+        /// </summary>
+        public void Flush()
+        {
+            WriteSegment();
+            _fileStream.Flush();
+            _indexStream.Flush();
+        }
+
+        /// <summary>
+        /// Close the TDMS file
+        /// </summary>
+        public void Close()
+        {
+            Flush();
+            Dispose();
+        }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                _fileWriter?.Dispose();
+                _indexWriter?.Dispose();
+                _fileStream?.Dispose();
+                _indexStream?.Dispose();
+                _disposed = true;
             }
         }
     }
