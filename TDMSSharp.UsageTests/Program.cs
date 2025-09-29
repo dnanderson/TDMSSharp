@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using TdmsWriter;
+using TdmsSharp;
 
 namespace TdmsDemo
 {
@@ -104,7 +104,7 @@ namespace TdmsDemo
                     }
 
                     // Write using span for maximum performance
-                    channel.WriteValues(data.AsSpan());
+                    channel.WriteValues(data);
 
                     // Write segment every 10 batches to demonstrate incremental writing
                     if ((batch + 1) % 10 == 0)

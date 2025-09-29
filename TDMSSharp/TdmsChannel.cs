@@ -51,7 +51,7 @@ namespace TdmsSharp
         /// <summary>
         /// Write a single value to the channel
         /// </summary>
-        public void WriteValue<T>(T value)
+        public void WriteValue<T>(T value) where T : notnull
         {
             ValidateDataType<T>();
             WriteValueInternal(value);
@@ -61,7 +61,7 @@ namespace TdmsSharp
         /// <summary>
         /// Write multiple values to the channel
         /// </summary>
-        public void WriteValues<T>(T[] values)
+        public void WriteValues<T>(T[] values) where T : notnull
         {
             if (values == null || values.Length == 0)
                 return;

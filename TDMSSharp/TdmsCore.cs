@@ -109,7 +109,7 @@ namespace TdmsSharp
         protected readonly Dictionary<string, TdmsProperty> _properties = new();
         protected bool _propertiesModified = false;
 
-        public string Path { get; protected set; }
+        public string Path { get; protected set; } = null!;
         public IReadOnlyDictionary<string, TdmsProperty> Properties => _properties;
         public bool HasPropertiesModified => _propertiesModified;
 

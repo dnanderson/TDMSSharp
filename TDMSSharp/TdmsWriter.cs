@@ -93,10 +93,11 @@ namespace TdmsSharp
         /// <summary>
         /// Get an existing channel
         /// </summary>
-        public TdmsChannel GetChannel(string groupName, string channelName)
+        public TdmsChannel? GetChannel(string groupName, string channelName)
         {
             var key = $"{groupName}/{channelName}";
-            return _channels.TryGetValue(key, out var channel) ? channel : null;
+            _channels.TryGetValue(key, out var channel);
+            return channel;
         }
 
         /// <summary>
