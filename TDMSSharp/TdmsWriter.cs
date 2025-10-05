@@ -22,7 +22,6 @@ namespace TdmsSharp
         private readonly FileStream _indexStream;
         private readonly BinaryWriter _fileWriter;
         private readonly BinaryWriter _indexWriter;
-        private readonly string _filePath;
 
         private readonly TdmsFile _fileObject;
         private readonly Dictionary<string, TdmsGroup> _groups = new();
@@ -31,7 +30,6 @@ namespace TdmsSharp
 
         private bool _isFirstSegment = true;
         private long _currentDataSegmentStart = 0;
-        private long _previousIndexSegmentStart = -1;
         private bool _disposed = false;
 
         public TdmsFileWriter(string filePath)
@@ -39,7 +37,6 @@ namespace TdmsSharp
             if (string.IsNullOrEmpty(filePath))
                 throw new ArgumentException("File path cannot be null or empty", nameof(filePath));
 
-            _filePath = filePath;
             _fileObject = new TdmsFile();
 
             // Create main file and index file
@@ -132,12 +129,6 @@ namespace TdmsSharp
             if (!hasMetaData && !hasRawData)
                 return; // Nothing to write
 
-            // Update previous index segment's NextSegmentOffset before writing new segment
-            if (_previousIndexSegmentStart >= 0)
-            {
-                UpdatePreviousIndexSegmentOffset();
-            }
-
             // If we have raw data but no metadata changes, we can append directly
             if (!hasMetaData && hasRawData && !_isFirstSegment)
             {
@@ -172,19 +163,6 @@ namespace TdmsSharp
             // For simplicity, we'll track if channels were added
             // In a full implementation, we'd track removals and reorderings
             return false;
-        }
-
-        private void UpdatePreviousIndexSegmentOffset()
-        {
-            // Calculate offset from previous index segment to current position
-            var currentIndexPos = _indexStream.Position;
-            var offsetToNextSegment = currentIndexPos - _previousIndexSegmentStart - 28;
-
-            // Update the previous segment's NextSegmentOffset
-            var savedPosition = _indexStream.Position;
-            _indexStream.Seek(_previousIndexSegmentStart + 12, SeekOrigin.Begin);
-            _indexWriter.Write((ulong)offsetToNextSegment);
-            _indexStream.Seek(savedPosition, SeekOrigin.Begin);
         }
 
         private void AppendRawDataOnly()
@@ -239,7 +217,7 @@ namespace TdmsSharp
             if (hasRawData) tocFlags |= TocFlags.RawData;
             if (newObjectList) tocFlags |= TocFlags.NewObjList;
 
-            // === WRITE LEAD-INS (with placeholders) ===
+            // === WRITE LEAD-INS (with INCOMPLETE_SEGMENT placeholders for crash protection) ===
             WriteLeadIn(tocFlags, _fileWriter, TDMS_TAG);
             WriteLeadIn(tocFlags, _indexWriter, TDMS_INDEX_TAG);
 
@@ -266,35 +244,40 @@ namespace TdmsSharp
             }
 
             // === WRITE RAW DATA (only to data file) ===
+            var rawDataSize = 0L;
             if (hasRawData)
             {
+                var beforeRawData = _fileStream.Position;
                 WriteRawData();
+                rawDataSize = _fileStream.Position - beforeRawData;
             }
 
-            var dataSegmentEnd = _fileStream.Position;
+            // Calculate NextSegmentOffset values
+            // This is the size of remaining segment data (excluding the 28-byte lead-in)
+            // For data file: metadata_size + raw_data_size
+            // For index file: metadata_size only (no raw data in index)
+            var dataNextSegmentOffset = (ulong)(metadataSize + rawDataSize);
 
             // === UPDATE LEAD-INS with actual sizes ===
+            // This finalizes the segment - changing from INCOMPLETE_SEGMENT to actual size
+            // If program crashes before this point, readers will detect incomplete segment
+            // The reader determines if this is the last segment by checking if 
+            // segment_start + 28 + NextSegmentOffset >= file_size
             
-            // Data file lead-in update:
-            // - NextSegmentOffset = size of remaining segment (metadata + raw data)
-            // - RawDataOffset = metadata size
+            // Data file lead-in update
             UpdateLeadIn(_fileStream, _fileWriter, 
                 dataSegmentStart, 
-                (ulong)(dataSegmentEnd - dataSegmentStart - 28),  // Remaining segment size
-                (ulong)metadataSize);                              // Metadata size
+                dataNextSegmentOffset,  // metadata_size + data_size
+                (ulong)metadataSize);   // Metadata size
 
-            // Index file lead-in update:
-            // - NextSegmentOffset = size of remaining index segment (metadata only)
-            //   This will be updated when next segment is written, leave as placeholder
-            // - RawDataOffset = MUST MATCH data file's RawDataOffset (metadata size)
+            // Index file lead-in update
             UpdateLeadIn(_indexStream, _indexWriter,
                 indexSegmentStart,
-                INCOMPLETE_SEGMENT,  // Placeholder - will update when next segment written
-                (ulong)metadataSize);       // MUST match data file
+                dataNextSegmentOffset, // metadata_size (no data in index)
+                (ulong)metadataSize);   // MUST match data file
 
             // Update tracking positions
             _currentDataSegmentStart = dataSegmentStart;
-            _previousIndexSegmentStart = indexSegmentStart;
 
             // Clear modification flags and data buffers
             ResetAllFlags();
@@ -312,8 +295,9 @@ namespace TdmsSharp
             // Write version (must be identical in both files)
             writer.Write(TDMS_VERSION);
 
-            // Placeholder for NextSegmentOffset (will update later)
-            writer.Write((ulong)0);
+            // Write INCOMPLETE_SEGMENT marker as placeholder for crash protection
+            // This will be updated to actual size after segment is written
+            writer.Write(INCOMPLETE_SEGMENT);
 
             // Placeholder for RawDataOffset (will update later)
             writer.Write((ulong)0);
