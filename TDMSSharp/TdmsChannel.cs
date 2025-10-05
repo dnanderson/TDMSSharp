@@ -94,6 +94,7 @@ namespace TdmsSharp
 
         /// <summary>
         /// Write string values (special handling required)
+        /// FIXED: Offsets are now cumulative END positions
         /// </summary>
         public void WriteStrings(string[] values)
         {
@@ -103,20 +104,20 @@ namespace TdmsSharp
             if (values == null || values.Length == 0)
                 return;
 
-            // Calculate offsets and concatenate strings
+            // Calculate cumulative offsets (end positions) and concatenate strings
             var offsets = new List<uint>();
             var concatenated = new List<byte>();
-            uint currentOffset = 0;
+            uint cumulativeOffset = 0;
 
             foreach (var str in values)
             {
-                offsets.Add(currentOffset);
                 var bytes = System.Text.Encoding.UTF8.GetBytes(str ?? string.Empty);
                 concatenated.AddRange(bytes);
-                currentOffset += (uint)bytes.Length;
+                cumulativeOffset += (uint)bytes.Length;
+                offsets.Add(cumulativeOffset);  // FIXED: Add AFTER processing, showing end position
             }
 
-            // Write offsets first
+            // Write offsets first (each offset points to the END of its corresponding string)
             foreach (var offset in offsets)
             {
                 _dataBuffer.AddRange(BitConverter.GetBytes(offset));
@@ -126,8 +127,9 @@ namespace TdmsSharp
             _dataBuffer.AddRange(concatenated);
 
             _rawDataIndex.NumberOfValues += (ulong)values.Length;
-            // Total size includes both offset array and string data
-            _rawDataIndex.TotalSizeInBytes = (ulong)(_dataBuffer.Count);
+            
+            // FIXED: Total size = (number of offsets × 4 bytes) + total string bytes
+            _rawDataIndex.TotalSizeInBytes = (ulong)(values.Length * 4 + concatenated.Count);
             _hasDataToWrite = true;
         }
 
@@ -206,6 +208,7 @@ namespace TdmsSharp
 
         private byte[] GetTimestampBytes(TdmsTimestamp timestamp)
         {
+            // Little-endian: Fractions (u64) then Seconds (i64)
             var bytes = new byte[16];
             BitConverter.GetBytes(timestamp.Fractions).CopyTo(bytes, 0);
             BitConverter.GetBytes(timestamp.Seconds).CopyTo(bytes, 8);
