@@ -30,6 +30,7 @@ namespace TdmsSharp
 
         private bool _isFirstSegment = true;
         private long _currentDataSegmentStart = 0;
+        private long _currentIndexSegmentStart = 0; // <-- FIX: Track index segment start
         private bool _disposed = false;
 
         public TdmsFileWriter(string filePath)
@@ -168,27 +169,32 @@ namespace TdmsSharp
         private void AppendRawDataOnly()
         {
             // This function appends raw data to the CURRENT data segment
-            // No new segment is created, so no new index segment is needed
-            
+            // No new metadata segment is created, but the lead-in of the existing
+            // segment must be updated in both files.
+
             // Calculate raw data size
             var rawDataSize = _channels.Values.Where(c => c.HasDataToWrite)
                                               .Sum(c => (long)c.GetDataBuffer().Length);
 
             // === UPDATE DATA FILE ===
             var dataFileOriginalEnd = _fileStream.Position;
-            
+            var currentSegmentSize = dataFileOriginalEnd - _currentDataSegmentStart - 28;
+            var newSegmentSize = (ulong)(currentSegmentSize + rawDataSize);
+
             // Update data file segment's NextSegmentOffset
             _fileStream.Seek(_currentDataSegmentStart + 12, SeekOrigin.Begin);
-            var currentSegmentSize = dataFileOriginalEnd - _currentDataSegmentStart - 28;
-            var newSegmentSize = currentSegmentSize + rawDataSize;
-            _fileWriter.Write((ulong)newSegmentSize);
+            _fileWriter.Write(newSegmentSize);
 
             // Return to end and write raw data
             _fileStream.Seek(dataFileOriginalEnd, SeekOrigin.Begin);
             WriteRawData();
 
-            // Index file doesn't change - the index segment was already written
-            // with the correct metadata when this segment started
+            // === UPDATE INDEX FILE ===
+            // The index file's NextSegmentOffset must be updated to match the data file's
+            var indexFileOriginalEnd = _indexStream.Position;
+            _indexStream.Seek(_currentIndexSegmentStart + 12, SeekOrigin.Begin);
+            _indexWriter.Write(newSegmentSize); // Write the same new size
+            _indexStream.Seek(indexFileOriginalEnd, SeekOrigin.Begin);
 
             // Clear buffers
             foreach (var channel in _channels.Values)
@@ -255,29 +261,24 @@ namespace TdmsSharp
             // Calculate NextSegmentOffset values
             // This is the size of remaining segment data (excluding the 28-byte lead-in)
             // For data file: metadata_size + raw_data_size
-            // For index file: metadata_size only (no raw data in index)
             var dataNextSegmentOffset = (ulong)(metadataSize + rawDataSize);
 
             // === UPDATE LEAD-INS with actual sizes ===
-            // This finalizes the segment - changing from INCOMPLETE_SEGMENT to actual size
-            // If program crashes before this point, readers will detect incomplete segment
-            // The reader determines if this is the last segment by checking if 
-            // segment_start + 28 + NextSegmentOffset >= file_size
-            
             // Data file lead-in update
             UpdateLeadIn(_fileStream, _fileWriter, 
                 dataSegmentStart, 
-                dataNextSegmentOffset,  // metadata_size + data_size
-                (ulong)metadataSize);   // Metadata size
+                dataNextSegmentOffset,
+                (ulong)metadataSize);
 
-            // Index file lead-in update
+            // Index file lead-in update - MUST BE IDENTICAL
             UpdateLeadIn(_indexStream, _indexWriter,
                 indexSegmentStart,
-                dataNextSegmentOffset, // metadata_size (no data in index)
-                (ulong)metadataSize);   // MUST match data file
+                dataNextSegmentOffset, // MUST match data file
+                (ulong)metadataSize);
 
             // Update tracking positions
             _currentDataSegmentStart = dataSegmentStart;
+            _currentIndexSegmentStart = indexSegmentStart; // <-- FIX: Update index start position
 
             // Clear modification flags and data buffers
             ResetAllFlags();
@@ -296,7 +297,6 @@ namespace TdmsSharp
             writer.Write(TDMS_VERSION);
 
             // Write INCOMPLETE_SEGMENT marker as placeholder for crash protection
-            // This will be updated to actual size after segment is written
             writer.Write(INCOMPLETE_SEGMENT);
 
             // Placeholder for RawDataOffset (will update later)
@@ -381,31 +381,18 @@ namespace TdmsSharp
                 return;
             }
 
-            // If the raw data index has not changed since the last write,
-            // and this is not the first segment, we can write a special marker.
             if (!index.HasChanged && !_isFirstSegment)
             {
                 writer.Write(RAW_DATA_MATCHES_PREVIOUS);
                 return;
             }
 
-            // Otherwise, write the full index.
-            // Calculate and write index length
-            // For non-strings: 4 (type) + 4 (dim) + 8 (count) = 16 bytes
-            // For strings: 4 (type) + 4 (dim) + 8 (count) + 8 (size) = 24 bytes
             uint indexLength = (index.DataType == TdmsDataType.String) ? 24u : 16u;
             writer.Write(indexLength);
-
-            // Write data type
             writer.Write((uint)index.DataType);
-
-            // Write array dimension (always 1)
             writer.Write((uint)1);
-
-            // Write number of values
             writer.Write(index.NumberOfValues);
 
-            // For strings, write total size in bytes
             if (index.DataType == TdmsDataType.String)
             {
                 writer.Write(index.TotalSizeInBytes);
@@ -424,7 +411,6 @@ namespace TdmsSharp
                 {
                     WriteString(writer, prop.Name);
                     writer.Write((uint)prop.DataType);
-                    // The property itself now handles writing its value.
                     prop.WriteValue(writer);
                 }
             }
@@ -472,40 +458,28 @@ namespace TdmsSharp
             }
         }
 
-        /// <summary>
-        /// Flush all pending writes to disk
-        /// </summary>
         public void Flush()
         {
             WriteSegment();
-            
             _fileStream.Flush();
             _indexStream.Flush();
         }
 
-        /// <summary>
-        /// Close the TDMS file
-        /// </summary>
         public void Close()
         {
             Dispose();
         }
 
-        /// <summary>
-        /// Flushes all pending data to disk and releases file resources.
-        /// </summary>
         public void Dispose()
         {
             if (!_disposed)
             {
                 try
                 {
-                    // This is the crucial step: ensure all data is written before closing.
                     Flush();
                 }
                 finally
                 {
-                    // Ensure streams are always closed, even if Flush fails.
                     _fileWriter?.Dispose();
                     _indexWriter?.Dispose();
                     _fileStream?.Dispose();
