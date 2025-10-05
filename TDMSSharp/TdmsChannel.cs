@@ -10,11 +10,12 @@ namespace TdmsSharp
     /// </summary>
     public class TdmsChannel : TdmsObject
     {
-        private readonly List<byte> _dataBuffer = new();
+        private MemoryStream _dataBuffer = new MemoryStream();
         private readonly TdmsDataType _dataType;
         private readonly RawDataIndex _rawDataIndex;
         private bool _hasDataToWrite = false;
         private ulong _totalValuesWritten = 0;
+        private ulong _lastWrittenNumberOfValues = ulong.MaxValue;
 
         public string Name { get; }
         public string GroupName { get; }
@@ -22,7 +23,11 @@ namespace TdmsSharp
         public bool HasDataToWrite => _hasDataToWrite;
 
         internal RawDataIndex RawDataIndex => _rawDataIndex;
-        internal byte[] DataBuffer => _dataBuffer.ToArray();
+
+        internal ReadOnlyMemory<byte> GetDataBuffer()
+        {
+            return _dataBuffer.GetBuffer().AsMemory(0, (int)_dataBuffer.Length);
+        }
 
         public TdmsChannel(string groupName, string name, TdmsDataType dataType)
         {
@@ -86,7 +91,7 @@ namespace TdmsSharp
 
             // For unmanaged types, we can do a fast bulk copy
             var bytes = MemoryMarshal.AsBytes(values);
-            _dataBuffer.AddRange(bytes.ToArray());
+            _dataBuffer.Write(bytes);
             _rawDataIndex.NumberOfValues += (ulong)values.Length;
             _rawDataIndex.TotalSizeInBytes += (ulong)bytes.Length;
             _hasDataToWrite = true;
@@ -104,42 +109,50 @@ namespace TdmsSharp
             if (values == null || values.Length == 0)
                 return;
 
-            // Calculate cumulative offsets (end positions) and concatenate strings
-            var offsets = new List<uint>();
-            var concatenated = new List<byte>();
-            uint cumulativeOffset = 0;
-
-            foreach (var str in values)
+            // Use a temporary MemoryStream for string data to calculate size and write efficiently
+            using (var stringStream = new MemoryStream())
             {
-                var bytes = System.Text.Encoding.UTF8.GetBytes(str ?? string.Empty);
-                concatenated.AddRange(bytes);
-                cumulativeOffset += (uint)bytes.Length;
-                offsets.Add(cumulativeOffset);  // FIXED: Add AFTER processing, showing end position
+                // Calculate cumulative offsets (end positions) and concatenate strings
+                var offsets = new List<uint>();
+                uint cumulativeOffset = 0;
+
+                foreach (var str in values)
+                {
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(str ?? string.Empty);
+                    stringStream.Write(bytes);
+                    cumulativeOffset += (uint)bytes.Length;
+                    offsets.Add(cumulativeOffset);
+                }
+
+                // Write offsets first to the main data buffer
+                foreach (var offset in offsets)
+                {
+                    _dataBuffer.Write(BitConverter.GetBytes(offset));
+                }
+
+                // Write concatenated strings from the temporary stream
+                stringStream.Position = 0;
+                stringStream.CopyTo(_dataBuffer);
+
+                _rawDataIndex.NumberOfValues += (ulong)values.Length;
+                _rawDataIndex.TotalSizeInBytes = (ulong)(values.Length * 4 + stringStream.Length);
+                _hasDataToWrite = true;
             }
-
-            // Write offsets first (each offset points to the END of its corresponding string)
-            foreach (var offset in offsets)
-            {
-                _dataBuffer.AddRange(BitConverter.GetBytes(offset));
-            }
-
-            // Write concatenated strings
-            _dataBuffer.AddRange(concatenated);
-
-            _rawDataIndex.NumberOfValues += (ulong)values.Length;
-            
-            // FIXED: Total size = (number of offsets × 4 bytes) + total string bytes
-            _rawDataIndex.TotalSizeInBytes = (ulong)(values.Length * 4 + concatenated.Count);
-            _hasDataToWrite = true;
         }
 
         internal void ClearDataBuffer()
         {
-            _dataBuffer.Clear();
+            if (_hasDataToWrite)
+            {
+                _lastWrittenNumberOfValues = _rawDataIndex.NumberOfValues;
+            }
+            _dataBuffer.SetLength(0);
+            _dataBuffer.Position = 0;
             _totalValuesWritten += _rawDataIndex.NumberOfValues;
             _rawDataIndex.NumberOfValues = 0;
             _rawDataIndex.TotalSizeInBytes = 0;
             _hasDataToWrite = false;
+            // HasChanged is reset here, it will be re-evaluated on next write.
             _rawDataIndex.HasChanged = false;
         }
 
@@ -147,7 +160,16 @@ namespace TdmsSharp
         {
             if (_hasDataToWrite)
             {
-                _rawDataIndex.HasChanged = true;
+                // The index has changed if the number of values is different from the last write.
+                // It's always considered changed for the first segment a channel is written to.
+                if (_rawDataIndex.NumberOfValues != _lastWrittenNumberOfValues)
+                {
+                    _rawDataIndex.HasChanged = true;
+                }
+                else
+                {
+                    _rawDataIndex.HasChanged = false;
+                }
             }
         }
 
@@ -184,24 +206,26 @@ namespace TdmsSharp
 
         private void WriteValueInternal<T>(T value)
         {
-            byte[] bytes = _dataType switch
+            // This method is now less efficient due to boxing and allocation.
+            // Keeping for single value writes, but bulk writes are preferred.
+            byte[] bytes;
+            switch (_dataType)
             {
-                TdmsDataType.I8 => new[] { (byte)(sbyte)(object)value },
-                TdmsDataType.I16 => BitConverter.GetBytes((short)(object)value),
-                TdmsDataType.I32 => BitConverter.GetBytes((int)(object)value),
-                TdmsDataType.I64 => BitConverter.GetBytes((long)(object)value),
-                TdmsDataType.U8 => new[] { (byte)(object)value },
-                TdmsDataType.U16 => BitConverter.GetBytes((ushort)(object)value),
-                TdmsDataType.U32 => BitConverter.GetBytes((uint)(object)value),
-                TdmsDataType.U64 => BitConverter.GetBytes((ulong)(object)value),
-                TdmsDataType.SingleFloat => BitConverter.GetBytes((float)(object)value),
-                TdmsDataType.DoubleFloat => BitConverter.GetBytes((double)(object)value),
-                TdmsDataType.Boolean => new[] { (byte)((bool)(object)value ? 1 : 0) },
-                TdmsDataType.TimeStamp => GetTimestampBytes((TdmsTimestamp)(object)value),
-                _ => throw new NotSupportedException($"Data type {_dataType} is not supported")
-            };
-
-            _dataBuffer.AddRange(bytes);
+                case TdmsDataType.I8: bytes = new[] { (byte)(sbyte)(object)value }; break;
+                case TdmsDataType.I16: bytes = BitConverter.GetBytes((short)(object)value); break;
+                case TdmsDataType.I32: bytes = BitConverter.GetBytes((int)(object)value); break;
+                case TdmsDataType.I64: bytes = BitConverter.GetBytes((long)(object)value); break;
+                case TdmsDataType.U8: bytes = new[] { (byte)(object)value }; break;
+                case TdmsDataType.U16: bytes = BitConverter.GetBytes((ushort)(object)value); break;
+                case TdmsDataType.U32: bytes = BitConverter.GetBytes((uint)(object)value); break;
+                case TdmsDataType.U64: bytes = BitConverter.GetBytes((ulong)(object)value); break;
+                case TdmsDataType.SingleFloat: bytes = BitConverter.GetBytes((float)(object)value); break;
+                case TdmsDataType.DoubleFloat: bytes = BitConverter.GetBytes((double)(object)value); break;
+                case TdmsDataType.Boolean: bytes = new[] { (byte)((bool)(object)value ? 1 : 0) }; break;
+                case TdmsDataType.TimeStamp: bytes = GetTimestampBytes((TdmsTimestamp)(object)value); break;
+                default: throw new NotSupportedException($"Data type {_dataType} is not supported");
+            }
+            _dataBuffer.Write(bytes);
             _rawDataIndex.NumberOfValues++;
             _rawDataIndex.TotalSizeInBytes += (ulong)bytes.Length;
         }

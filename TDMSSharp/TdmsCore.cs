@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace TdmsSharp
@@ -64,40 +65,65 @@ namespace TdmsSharp
     }
 
     /// <summary>
-    /// Represents a TDMS property value
+    /// Base class for a TDMS property, enabling type-agnostic storage
     /// </summary>
-    public class TdmsProperty
+    public abstract class TdmsProperty
     {
         public string Name { get; }
         public TdmsDataType DataType { get; }
-        public object Value { get; }
 
-        public TdmsProperty(string name, object value)
+        protected TdmsProperty(string name, TdmsDataType dataType)
         {
-            Name = name ?? throw new ArgumentNullException(nameof(name));
-            Value = value ?? throw new ArgumentNullException(nameof(value));
-            DataType = GetDataType(value);
+            Name = name;
+            DataType = dataType;
         }
 
-        private static TdmsDataType GetDataType(object value)
+        public abstract void WriteValue(BinaryWriter writer);
+        public abstract object GetValue();
+    }
+
+    /// <summary>
+    /// Represents a strongly-typed TDMS property to avoid boxing
+    /// </summary>
+    public class TdmsProperty<T> : TdmsProperty where T : notnull
+    {
+        public T Value { get; }
+
+        public TdmsProperty(string name, T value)
+            : base(name, TdmsDataTypeHelper.GetDataType(typeof(T)))
         {
-            return value switch
+            Value = value;
+        }
+
+        public override object GetValue() => Value;
+
+        public override void WriteValue(BinaryWriter writer)
+        {
+            switch (Value)
             {
-                sbyte => TdmsDataType.I8,
-                short => TdmsDataType.I16,
-                int => TdmsDataType.I32,
-                long => TdmsDataType.I64,
-                byte => TdmsDataType.U8,
-                ushort => TdmsDataType.U16,
-                uint => TdmsDataType.U32,
-                ulong => TdmsDataType.U64,
-                float => TdmsDataType.SingleFloat,
-                double => TdmsDataType.DoubleFloat,
-                string => TdmsDataType.String,
-                bool => TdmsDataType.Boolean,
-                TdmsTimestamp => TdmsDataType.TimeStamp,
-                _ => throw new NotSupportedException($"Data type {value.GetType()} is not supported")
-            };
+                case sbyte v: writer.Write(v); break;
+                case short v: writer.Write(v); break;
+                case int v: writer.Write(v); break;
+                case long v: writer.Write(v); break;
+                case byte v: writer.Write(v); break;
+                case ushort v: writer.Write(v); break;
+                case uint v: writer.Write(v); break;
+                case ulong v: writer.Write(v); break;
+                case float v: writer.Write(v); break;
+                case double v: writer.Write(v); break;
+                case bool v: writer.Write((byte)(v ? 1 : 0)); break;
+                case TdmsTimestamp v:
+                    writer.Write(v.Fractions);
+                    writer.Write(v.Seconds);
+                    break;
+                case string v:
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(v);
+                    writer.Write((uint)bytes.Length);
+                    writer.Write(bytes);
+                    break;
+                default:
+                    throw new NotSupportedException($"Writing property of type {typeof(T)} is not supported.");
+            }
         }
     }
 
@@ -113,25 +139,31 @@ namespace TdmsSharp
         public IReadOnlyDictionary<string, TdmsProperty> Properties => _properties;
         public bool HasPropertiesModified => _propertiesModified;
 
-        public void SetProperty(string name, object value)
+        public void SetProperty<T>(string name, T value) where T : notnull
         {
             if (string.IsNullOrEmpty(name))
                 throw new ArgumentException("Property name cannot be null or empty", nameof(name));
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
 
-            var property = new TdmsProperty(name, value);
-            
-            if (!_properties.TryGetValue(name, out var existing) || 
-                !Equals(existing.Value, value))
+            if (_properties.TryGetValue(name, out var existing) && existing is TdmsProperty<T> existingTyped)
             {
-                _properties[name] = property;
-                _propertiesModified = true;
+                if (EqualityComparer<T>.Default.Equals(existingTyped.Value, value))
+                {
+                    return; // Value is unchanged
+                }
             }
+
+            _properties[name] = new TdmsProperty<T>(name, value);
+            _propertiesModified = true;
         }
 
         public void RemoveProperty(string name)
         {
             if (_properties.Remove(name))
+            {
                 _propertiesModified = true;
+            }
         }
 
         public virtual void ResetModifiedFlags()
@@ -180,18 +212,65 @@ namespace TdmsSharp
         public bool HasChanged { get; set; } = true;
         public bool MatchesPrevious { get; set; } = false;
 
-        public int GetElementSize()
+        public int GetElementSize() => TdmsDataTypeHelper.GetSize(DataType);
+    }
+
+    /// <summary>
+    /// Abstract base class to hold data for a channel before writing a segment.
+    /// </summary>
+    public abstract class ChannelData
+    {
+        /// <summary>
+        /// The channel that this data belongs to.
+        /// </summary>
+        public abstract TdmsChannel Channel { get; }
+
+        /// <summary>
+        /// Writes the contained data to the channel's internal buffer.
+        /// </summary>
+        internal abstract void WriteToChannelBuffer();
+    }
+
+    /// <summary>
+    /// Holds data for a channel of an unmanaged type (e.g., int, double, float).
+    /// </summary>
+    /// <typeparam name="T">The unmanaged data type.</typeparam>
+    public class ChannelData<T> : ChannelData where T : unmanaged
+    {
+        private readonly TdmsChannel _channel;
+        private readonly ReadOnlyMemory<T> _data;
+
+        public override TdmsChannel Channel => _channel;
+
+        public ChannelData(TdmsChannel channel, ReadOnlyMemory<T> data)
         {
-            return DataType switch
-            {
-                TdmsDataType.I8 or TdmsDataType.U8 or TdmsDataType.Boolean => 1,
-                TdmsDataType.I16 or TdmsDataType.U16 => 2,
-                TdmsDataType.I32 or TdmsDataType.U32 or TdmsDataType.SingleFloat => 4,
-                TdmsDataType.I64 or TdmsDataType.U64 or TdmsDataType.DoubleFloat => 8,
-                TdmsDataType.TimeStamp => 16,
-                TdmsDataType.String => -1, // Variable length
-                _ => throw new NotSupportedException($"Data type {DataType} is not supported")
-            };
+            if (channel.DataType != TdmsDataTypeHelper.GetDataType(typeof(T)))
+                throw new ArgumentException($"Channel data type '{channel.DataType}' does not match provided data type '{typeof(T)}'.");
+            _channel = channel;
+            _data = data;
         }
+
+        internal override void WriteToChannelBuffer() => _channel.WriteValues(_data.Span);
+    }
+
+    /// <summary>
+    /// Holds data for a string channel.
+    /// </summary>
+    public class StringChannelData : ChannelData
+    {
+        private readonly TdmsChannel _channel;
+        private readonly string[] _data;
+
+        public override TdmsChannel Channel => _channel;
+
+        public StringChannelData(TdmsChannel channel, string[] data)
+        {
+            if (channel.DataType != TdmsDataType.String)
+                throw new ArgumentException("Channel data type must be String for StringChannelData.");
+            _channel = channel;
+            _data = data;
+        }
+
+        internal override void WriteToChannelBuffer() => _channel.WriteStrings(_data);
     }
 }

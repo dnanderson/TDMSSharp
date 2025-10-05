@@ -34,26 +34,26 @@ namespace TdmsDemo
             using (var writer = new TdmsFileWriter("basic_demo.tdms"))
             {
                 // Set file properties
-                writer.SetFileProperty("title", "Basic TDMS Demo");
-                writer.SetFileProperty("author", "TDMS Writer Library");
-                writer.SetFileProperty("timestamp", TdmsTimestamp.Now);
+                writer.SetFileProperty<string>("title", "Basic TDMS Demo");
+                writer.SetFileProperty<string>("author", "TDMS Writer Library");
+                writer.SetFileProperty<TdmsTimestamp>("timestamp", TdmsTimestamp.Now);
 
                 // Create a group with properties
                 var group = writer.CreateGroup("Measurements");
-                group.SetProperty("description", "Temperature and pressure measurements");
-                group.SetProperty("location", "Lab A");
-                group.SetProperty("test_id", 12345);
+                group.SetProperty<string>("description", "Temperature and pressure measurements");
+                group.SetProperty<string>("location", "Lab A");
+                group.SetProperty<int>("test_id", 12345);
 
                 // Create channels
                 var tempChannel = writer.CreateChannel("Measurements", "Temperature", TdmsDataType.DoubleFloat);
                 var pressureChannel = writer.CreateChannel("Measurements", "Pressure", TdmsDataType.SingleFloat);
 
                 // Set channel properties
-                tempChannel.SetProperty("unit_string", "°C");
-                tempChannel.SetProperty("sensor_type", "Thermocouple Type K");
+                tempChannel.SetProperty<string>("unit_string", "°C");
+                tempChannel.SetProperty<string>("sensor_type", "Thermocouple Type K");
                 
-                pressureChannel.SetProperty("unit_string", "bar");
-                pressureChannel.SetProperty("sensor_type", "Piezoelectric");
+                pressureChannel.SetProperty<string>("unit_string", "bar");
+                pressureChannel.SetProperty<string>("sensor_type", "Piezoelectric");
 
                 // Write some data
                 var random = new Random();
@@ -80,14 +80,14 @@ namespace TdmsDemo
 
             using (var writer = new TdmsFileWriter("performance_demo.tdms"))
             {
-                writer.SetFileProperty("title", "Performance Test");
-                writer.SetFileProperty("sample_count", numSamples);
+                writer.SetFileProperty<string>("title", "Performance Test");
+                writer.SetFileProperty<int>("sample_count", numSamples);
 
                 var group = writer.CreateGroup("HighSpeed");
                 var channel = writer.CreateChannel("HighSpeed", "Data", TdmsDataType.DoubleFloat);
                 
-                channel.SetProperty("sampling_rate", 1000000.0);
-                channel.SetProperty("unit_string", "V");
+                channel.SetProperty<double>("sampling_rate", 1000000.0);
+                channel.SetProperty<string>("unit_string", "V");
 
                 var sw = Stopwatch.StartNew();
 
@@ -130,7 +130,7 @@ namespace TdmsDemo
 
             using (var writer = new TdmsFileWriter("waveform_demo.tdms"))
             {
-                writer.SetFileProperty("title", "Waveform Data");
+                writer.SetFileProperty<string>("title", "Waveform Data");
 
                 var group = writer.CreateGroup("Waveforms");
                 
@@ -146,9 +146,9 @@ namespace TdmsDemo
 
                 foreach (var channel in new[] { sineChannel, cosineChannel, squareChannel })
                 {
-                    channel.SetProperty("wf_start_time", startTime);
-                    channel.SetProperty("wf_increment", 1.0 / samplingRate);
-                    channel.SetProperty("wf_samples", numSamples);
+                    channel.SetProperty<TdmsTimestamp>("wf_start_time", startTime);
+                    channel.SetProperty<double>("wf_increment", 1.0 / samplingRate);
+                    channel.SetProperty<int>("wf_samples", numSamples);
                 }
 
                 // Generate waveforms
@@ -182,7 +182,7 @@ namespace TdmsDemo
 
             using (var writer = new TdmsFileWriter("incremental_demo.tdms"))
             {
-                writer.SetFileProperty("title", "Incremental Writing Demo");
+                writer.SetFileProperty<string>("title", "Incremental Writing Demo");
 
                 var group = writer.CreateGroup("RealTimeData");
                 var channel1 = writer.CreateChannel("RealTimeData", "Sensor1", TdmsDataType.DoubleFloat);
@@ -211,7 +211,7 @@ namespace TdmsDemo
                     // Change a property occasionally to demonstrate metadata updates
                     if (iteration == 2)
                     {
-                        channel1.SetProperty("status", "Calibrated");
+                        channel1.SetProperty<string>("status", "Calibrated");
                         Console.WriteLine("  → Updated channel property");
                     }
                 }
@@ -227,7 +227,7 @@ namespace TdmsDemo
 
             using (var writer = new TdmsFileWriter("datatypes_demo.tdms"))
             {
-                writer.SetFileProperty("title", "All Supported Data Types");
+                writer.SetFileProperty<string>("title", "All Supported Data Types");
 
                 var group = writer.CreateGroup("DataTypes");
 

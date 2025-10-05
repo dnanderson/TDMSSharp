@@ -53,7 +53,7 @@ namespace TdmsSharp
         /// <summary>
         /// Set a property on the file object
         /// </summary>
-        public void SetFileProperty(string name, object value)
+        public void SetFileProperty<T>(string name, T value) where T : notnull
         {
             _fileObject.SetProperty(name, value);
         }
@@ -100,6 +100,23 @@ namespace TdmsSharp
             var key = $"{groupName}/{channelName}";
             _channels.TryGetValue(key, out var channel);
             return channel;
+        }
+
+        /// <summary>
+        /// Writes a segment of data for multiple channels in a single, optimized operation.
+        /// This is the recommended method for high-performance writing.
+        /// </summary>
+        /// <param name="channelData">An enumerable of ChannelData objects, each containing the data for a specific channel for this segment.</param>
+        public void WriteSegment(IEnumerable<ChannelData> channelData)
+        {
+            // 1. Write all provided data to the respective channel buffers.
+            foreach (var data in channelData)
+            {
+                data.WriteToChannelBuffer();
+            }
+
+            // 2. Call the original WriteSegment to write all buffered data to disk.
+            WriteSegment();
         }
 
         /// <summary>
@@ -177,7 +194,7 @@ namespace TdmsSharp
             
             // Calculate raw data size
             var rawDataSize = _channels.Values.Where(c => c.HasDataToWrite)
-                                              .Sum(c => (long)c.DataBuffer.Length);
+                                              .Sum(c => (long)c.GetDataBuffer().Length);
 
             // === UPDATE DATA FILE ===
             var dataFileOriginalEnd = _fileStream.Position;
@@ -380,12 +397,15 @@ namespace TdmsSharp
                 return;
             }
 
+            // If the raw data index has not changed since the last write,
+            // and this is not the first segment, we can write a special marker.
             if (!index.HasChanged && !_isFirstSegment)
             {
                 writer.Write(RAW_DATA_MATCHES_PREVIOUS);
                 return;
             }
 
+            // Otherwise, write the full index.
             // Calculate and write index length
             // For non-strings: 4 (type) + 4 (dim) + 8 (count) = 16 bytes
             // For strings: 4 (type) + 4 (dim) + 8 (count) + 8 (size) = 24 bytes
@@ -420,63 +440,13 @@ namespace TdmsSharp
                 {
                     WriteString(writer, prop.Name);
                     writer.Write((uint)prop.DataType);
-                    WritePropertyValue(writer, prop);
+                    // The property itself now handles writing its value.
+                    prop.WriteValue(writer);
                 }
             }
             else
             {
                 writer.Write((uint)0);
-            }
-        }
-
-        private void WritePropertyValue(BinaryWriter writer, TdmsProperty property)
-        {
-            switch (property.DataType)
-            {
-                case TdmsDataType.I8:
-                    writer.Write((sbyte)property.Value);
-                    break;
-                case TdmsDataType.I16:
-                    writer.Write((short)property.Value);
-                    break;
-                case TdmsDataType.I32:
-                    writer.Write((int)property.Value);
-                    break;
-                case TdmsDataType.I64:
-                    writer.Write((long)property.Value);
-                    break;
-                case TdmsDataType.U8:
-                    writer.Write((byte)property.Value);
-                    break;
-                case TdmsDataType.U16:
-                    writer.Write((ushort)property.Value);
-                    break;
-                case TdmsDataType.U32:
-                    writer.Write((uint)property.Value);
-                    break;
-                case TdmsDataType.U64:
-                    writer.Write((ulong)property.Value);
-                    break;
-                case TdmsDataType.SingleFloat:
-                    writer.Write((float)property.Value);
-                    break;
-                case TdmsDataType.DoubleFloat:
-                    writer.Write((double)property.Value);
-                    break;
-                case TdmsDataType.String:
-                    WriteString(writer, (string)property.Value);
-                    break;
-                case TdmsDataType.Boolean:
-                    writer.Write((byte)((bool)property.Value ? 1 : 0));
-                    break;
-                case TdmsDataType.TimeStamp:
-                    // Little-endian: Fractions then Seconds
-                    var ts = (TdmsTimestamp)property.Value;
-                    writer.Write(ts.Fractions);
-                    writer.Write(ts.Seconds);
-                    break;
-                default:
-                    throw new NotSupportedException($"Property type {property.DataType} is not supported");
             }
         }
 
@@ -488,8 +458,11 @@ namespace TdmsSharp
                 var channel = _channels[key];
                 if (channel.HasDataToWrite)
                 {
-                    var data = channel.DataBuffer;
-                    _fileWriter.Write(data);
+                    var data = channel.GetDataBuffer();
+                    if (!data.IsEmpty)
+                    {
+                        _fileWriter.Write(data.Span);
+                    }
                 }
             }
         }
