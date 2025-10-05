@@ -495,18 +495,6 @@ namespace TdmsSharp
         {
             WriteSegment();
             
-            // Update final index segment's NextSegmentOffset to indicate end of file
-            if (_previousIndexSegmentStart >= 0)
-            {
-                var currentIndexPos = _indexStream.Position;
-                var finalSegmentSize = currentIndexPos - _previousIndexSegmentStart - 28;
-                
-                var savedPosition = _indexStream.Position;
-                _indexStream.Seek(_previousIndexSegmentStart + 12, SeekOrigin.Begin);
-                _indexWriter.Write((ulong)finalSegmentSize);
-                _indexStream.Seek(savedPosition, SeekOrigin.Begin);
-            }
-            
             _fileStream.Flush();
             _indexStream.Flush();
         }
@@ -516,19 +504,30 @@ namespace TdmsSharp
         /// </summary>
         public void Close()
         {
-            Flush();
             Dispose();
         }
 
+        /// <summary>
+        /// Flushes all pending data to disk and releases file resources.
+        /// </summary>
         public void Dispose()
         {
             if (!_disposed)
             {
-                _fileWriter?.Dispose();
-                _indexWriter?.Dispose();
-                _fileStream?.Dispose();
-                _indexStream?.Dispose();
-                _disposed = true;
+                try
+                {
+                    // This is the crucial step: ensure all data is written before closing.
+                    Flush();
+                }
+                finally
+                {
+                    // Ensure streams are always closed, even if Flush fails.
+                    _fileWriter?.Dispose();
+                    _indexWriter?.Dispose();
+                    _fileStream?.Dispose();
+                    _indexStream?.Dispose();
+                    _disposed = true;
+                }
             }
         }
     }
