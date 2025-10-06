@@ -8,7 +8,7 @@
     
     <!-- Package Information -->
     <PackageId>TdmsWriter</PackageId>
-    <Version>1.0.0</Version>
+    <Version>0.0.1</Version>
     <Authors>TDMS Writer Library</Authors>
     <Description>High-performance TDMS file format writer with incremental metadata optimization</Description>
     <PackageTags>TDMS;NI;LabVIEW;Data;Streaming;High-Performance</PackageTags>
