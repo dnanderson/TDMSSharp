@@ -112,6 +112,11 @@ namespace TdmsSharp
                 case float v: writer.Write(v); break;
                 case double v: writer.Write(v); break;
                 case bool v: writer.Write((byte)(v ? 1 : 0)); break;
+                case DateTime v:
+                    var timestamp = new TdmsTimestamp(v);
+                    writer.Write(timestamp.Fractions);
+                    writer.Write(timestamp.Seconds);
+                    break;
                 case TdmsTimestamp v:
                     writer.Write(v.Fractions);
                     writer.Write(v.Seconds);

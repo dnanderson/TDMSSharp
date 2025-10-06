@@ -21,6 +21,7 @@ namespace TdmsSharp
             if (type == typeof(double)) return TdmsDataType.DoubleFloat;
             if (type == typeof(string)) return TdmsDataType.String;
             if (type == typeof(bool)) return TdmsDataType.Boolean;
+            if (type == typeof(DateTime)) return TdmsDataType.TimeStamp;
             if (type == typeof(TdmsTimestamp)) return TdmsDataType.TimeStamp;
 
             throw new NotSupportedException($"Data type {type} is not supported");

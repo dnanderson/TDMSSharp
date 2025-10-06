@@ -25,6 +25,8 @@ namespace TdmsSharp
 
         public T[] ReadData<T>() where T : unmanaged
         {
+            if (DataType == TdmsDataType.Void)
+                return Array.Empty<T>();
             if (DataType == TdmsDataType.Boolean)
                 throw new InvalidOperationException("Use ReadBoolData() for boolean channels as bool is not 'unmanaged' in all contexts.");
             if (TdmsDataTypeSizeHelper.GetSize(DataType) == 0)

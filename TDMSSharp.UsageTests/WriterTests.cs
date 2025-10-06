@@ -1,57 +1,143 @@
-// ReaderTests.cs
+// WriterTests.cs
 using System.IO;
 using TdmsSharp;
 using Xunit;
+using System.Linq;
+using System;
 
-public class ReaderTests
+public class WriterTests
 {
-    private void RunTest(System.Action<TdmsFileWriter> writeAction, System.Action<TdmsFileHolder> readAssertAction)
-    {
-        var path = Path.GetTempFileName();
-        try
-        {
-            using (var writer = new TdmsFileWriter(path))
-            {
-                writeAction(writer);
-            }
+    private string? _tempPath;
 
-            using (var reader = new TdmsReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)))
-            {
-                var file = reader.ReadFile();
-                readAssertAction(file);
-            }
-        }
-        finally
+    private TdmsFileWriter CreateWriter(out string path)
+    {
+        _tempPath = Path.GetTempFileName();
+        path = _tempPath;
+        return new TdmsFileWriter(path);
+    }
+
+    private void Cleanup()
+    {
+        if (_tempPath != null)
         {
-            if (File.Exists(path)) File.Delete(path);
-            if (File.Exists(path + "_index")) File.Delete(path + "_index");
+            if (File.Exists(_tempPath)) File.Delete(_tempPath);
+            var indexPath = _tempPath + "_index";
+            if (File.Exists(indexPath)) File.Delete(indexPath);
+            _tempPath = null;
         }
     }
 
-    [Fact]
-    public void TestSimpleWriteAndRead()
+    private void RunTest(System.Action<TdmsFileWriter> writeAction, System.Action<TdmsFileHolder> readAssertAction)
     {
-        RunTest(
-            writer => {
-                var channel = writer.CreateChannel("Group", "Channel1", TdmsDataType.I32);
-                var data = new[] { 1, 2, 3, 4, 5 };
-                channel.WriteValues(data);
-                writer.WriteSegment();
-            },
-            file => {
-                Assert.Single(file.Groups);
-                var group = file.GetGroup("Group");
-                Assert.NotNull(group);
-                Assert.Single(group.Channels);
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            writeAction(writer);
+        }
 
-                var channelReader = group.GetChannel("Channel1");
-                Assert.NotNull(channelReader);
-                Assert.Equal(TdmsDataType.I32, channelReader.DataType);
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)))
+        {
+            var file = reader.ReadFile();
+            readAssertAction(file);
+        }
+        Cleanup();
+    }
 
-                var readData = channelReader.ReadData<int>();
-                Assert.Equal(new[] { 1, 2, 3, 4, 5 }, readData);
-            }
-        );
+    [Fact(Skip = "Reader functionality for properties is not yet implemented")]
+    public void TestFileProperties()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            writer.SetFileProperty("Author", "Jules");
+            writer.SetFileProperty("Date", new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc));
+        }
+
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open)))
+        {
+            // This is a limitation of the current reader, it doesn't read file properties.
+            // When/if it does, this test should be updated to assert the properties.
+        }
+        Cleanup();
+    }
+
+    [Fact(Skip = "Reader functionality for properties is not yet implemented")]
+    public void TestGroupAndChannelProperties()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            var group = writer.CreateGroup("TestGroup");
+            group.SetProperty("Description", "A group for testing.");
+
+            var channel = writer.CreateChannel("TestGroup", "Channel1", TdmsDataType.I32);
+            channel.SetProperty("Unit", "Volts");
+        }
+
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open)))
+        {
+            // The current reader also doesn't expose properties on groups/channels.
+            // This test serves as a placeholder for when that functionality is added.
+        }
+        Cleanup();
+    }
+
+    [Fact]
+    public void TestWriteEmptyFile()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            // No data written
+        }
+
+        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(path + "_index"));
+
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open)))
+        {
+            var file = reader.ReadFile();
+            Assert.Empty(file.Groups);
+            Assert.Single(file.Segments); // The writer always creates one segment for file metadata.
+        }
+        Cleanup();
+    }
+
+    [Fact]
+    public void TestWriteFileWithMetadataOnly()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            writer.CreateChannel("Group", "Channel", TdmsDataType.I32);
+            // No data is written to the channel
+        }
+
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open)))
+        {
+            var file = reader.ReadFile();
+            var group = Assert.Single(file.Groups);
+            var channel = Assert.Single(group.Channels);
+            Assert.Equal("Group", group.Name);
+            Assert.Equal("Channel", channel.Name);
+            Assert.Empty(channel.ReadData<int>());
+        }
+        Cleanup();
+    }
+
+    [Fact]
+    public void TestChannelCreationThrowsOnTypeMismatch()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            writer.CreateChannel("Group", "Channel", TdmsDataType.I32);
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                writer.CreateChannel("Group", "Channel", TdmsDataType.DoubleFloat);
+            });
+        }
+        Cleanup();
     }
 
     [Fact]
