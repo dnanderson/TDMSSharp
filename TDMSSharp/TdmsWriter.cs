@@ -47,8 +47,40 @@ namespace TdmsSharp
 
             _fileObject = new TdmsFile();
 
-            // Initialize the RecyclableMemoryStreamManager
-            _memoryStreamManager = new RecyclableMemoryStreamManager();
+            // 1. Define the buffer and pool size settings.
+            // BlockSize: This is the size of the small memory blocks that the manager pools.
+            // When a stream needs memory, it gets it in chunks of this size. A good starting point
+            // is a value slightly larger than your most common small write operations. 
+            // 1024 bytes (1 KB) is a common default.
+            int blockSize = 1024; // 1 KB blocks
+            // LargeBufferMultiple: This controls the size of buffers in the large pool.
+            // Each buffer will be a multiple of this value. This should be set to a value 
+            // that makes sense for your larger data chunks. For example, if you often deal 
+            // with data in megabyte chunks, setting this to 1024 * 1024 (1 MB) is a good idea.
+            int largeBufferMultiple = 1024 * 1024; // 1 MB increments
+            // MaximumBufferSize: This sets an upper limit on the size of a single buffer that 
+            // will be pooled. Any request for a buffer larger than this will be allocated directly 
+            // from the system and will not be pooled. This prevents the pool from holding onto 
+            // excessively large arrays for rare, outlier events.
+            int maxBufferSize = 1024 * 1024 * 16; // 16 MB max buffer size
+
+            // MaximumFreeSmallPoolBytes: This is the total amount of memory (in bytes) that the manager will keep in the small block pool.
+            long maxSmallPoolBytes = 1024 * 1024 * 20;  // 20 MB total for small pool
+            // MaximumFreeLargePoolBytes: This is the total amount of memory (in bytes) that the manager will keep in the large buffer pool.
+            long maxLargePoolBytes = 1024 * 1024 * 100; // 100 MB total for large pool
+
+            // 2. Create the Options object with all parameters.
+            var streamManagerOptions = new RecyclableMemoryStreamManager.Options()
+            {
+                BlockSize = blockSize,
+                LargeBufferMultiple = largeBufferMultiple,
+                MaximumBufferSize = maxBufferSize,
+                MaximumSmallPoolFreeBytes = maxSmallPoolBytes,
+                MaximumLargePoolFreeBytes = maxLargePoolBytes
+            };
+
+            // 3. Create the manager with the configured Options object.
+            _memoryStreamManager = new RecyclableMemoryStreamManager(streamManagerOptions);
 
             _fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, false);
             _indexStream = new FileStream(filePath + "_index", FileMode.Create, FileAccess.Write, FileShare.Read, 4096, false);
@@ -93,8 +125,8 @@ namespace TdmsSharp
                 return existingChannel;
             }
 
-            // Pass the memory stream manager to the TdmsChannel constructor
             var channel = new TdmsChannel(groupName, channelName, dataType, _memoryStreamManager);
+
             _channels[key] = channel;
             _channelOrder.Add(key);
             return channel;
@@ -480,31 +512,23 @@ namespace TdmsSharp
             Dispose();
         }
 
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed) return;
-
-            if (disposing)
-            {
-                // Dispose of all channels
-                foreach (var channel in _channels.Values)
-                {
-                    channel.Dispose();
-                }
-
-                _fileWriter?.Dispose();
-                _indexWriter?.Dispose();
-                _fileStream?.Dispose();
-                _indexStream?.Dispose();
-            }
-
-            _disposed = true;
-        }
-
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
+            if (!_disposed)
+            {
+                try
+                {
+                    Flush();
+                }
+                finally
+                {
+                    _fileWriter?.Dispose();
+                    _indexWriter?.Dispose();
+                    _fileStream?.Dispose();
+                    _indexStream?.Dispose();
+                    _disposed = true;
+                }
+            }
         }
     }
 }
