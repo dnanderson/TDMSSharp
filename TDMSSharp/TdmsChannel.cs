@@ -2,15 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using Microsoft.IO;
+
 
 namespace TdmsSharp
 {
     /// <summary>
     /// Represents a TDMS channel object
     /// </summary>
-    public class TdmsChannel : TdmsObject
+    public class TdmsChannel : TdmsObject, IDisposable
     {
-        private MemoryStream _dataBuffer = new MemoryStream();
+        // Use RecyclableMemoryStream instead of MemoryStream
+        private RecyclableMemoryStream _dataBuffer;
+        private readonly RecyclableMemoryStreamManager _memoryStreamManager;
+        private bool _disposed = false;
+
         private readonly TdmsDataType _dataType;
         private readonly RawDataIndex _rawDataIndex;
         private bool _hasDataToWrite = false;
@@ -29,7 +35,7 @@ namespace TdmsSharp
             return _dataBuffer.GetBuffer().AsMemory(0, (int)_dataBuffer.Length);
         }
 
-        public TdmsChannel(string groupName, string name, TdmsDataType dataType)
+        public TdmsChannel(string groupName, string name, TdmsDataType dataType, RecyclableMemoryStreamManager memoryStreamManager)
         {
             if (string.IsNullOrEmpty(groupName))
                 throw new ArgumentException("Group name cannot be null or empty", nameof(groupName));
@@ -39,6 +45,9 @@ namespace TdmsSharp
             GroupName = groupName;
             Name = name;
             _dataType = dataType;
+            _memoryStreamManager = memoryStreamManager;
+            // Get a stream from the manager
+            _dataBuffer = (RecyclableMemoryStream)_memoryStreamManager.GetStream();
 
             var escapedGroup = groupName.Replace("'", "''");
             var escapedName = name.Replace("'", "''");
@@ -109,10 +118,9 @@ namespace TdmsSharp
             if (values == null || values.Length == 0)
                 return;
 
-            // Use a temporary MemoryStream for string data to calculate size and write efficiently
-            using (var stringStream = new MemoryStream())
+            // Use a temporary RecyclableMemoryStream for string data
+            using (var stringStream = (RecyclableMemoryStream)_memoryStreamManager.GetStream())
             {
-                // Calculate cumulative offsets (end positions) and concatenate strings
                 var offsets = new List<uint>();
                 uint cumulativeOffset = 0;
 
@@ -124,13 +132,11 @@ namespace TdmsSharp
                     offsets.Add(cumulativeOffset);
                 }
 
-                // Write offsets first to the main data buffer
                 foreach (var offset in offsets)
                 {
                     _dataBuffer.Write(BitConverter.GetBytes(offset));
                 }
 
-                // Write concatenated strings from the temporary stream
                 stringStream.Position = 0;
                 stringStream.CopyTo(_dataBuffer);
 
@@ -146,13 +152,15 @@ namespace TdmsSharp
             {
                 _lastWrittenNumberOfValues = _rawDataIndex.NumberOfValues;
             }
-            _dataBuffer.SetLength(0);
-            _dataBuffer.Position = 0;
+            // Dispose the stream to return it to the pool
+            _dataBuffer.Dispose();
+            // Get a new stream for the next set of data
+            _dataBuffer = (RecyclableMemoryStream)_memoryStreamManager.GetStream();
+
             _totalValuesWritten += _rawDataIndex.NumberOfValues;
             _rawDataIndex.NumberOfValues = 0;
             _rawDataIndex.TotalSizeInBytes = 0;
             _hasDataToWrite = false;
-            // HasChanged is reset here, it will be re-evaluated on next write.
             _rawDataIndex.HasChanged = false;
         }
 
@@ -237,6 +245,24 @@ namespace TdmsSharp
             BitConverter.GetBytes(timestamp.Fractions).CopyTo(bytes, 0);
             BitConverter.GetBytes(timestamp.Seconds).CopyTo(bytes, 8);
             return bytes;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+
+            if (disposing)
+            {
+                _dataBuffer?.Dispose();
+            }
+
+            _disposed = true;
         }
     }
 }

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Microsoft.IO;
+
 
 namespace TdmsSharp
 {
@@ -28,6 +30,11 @@ namespace TdmsSharp
         private readonly Dictionary<string, TdmsChannel> _channels = new();
         private readonly List<string> _channelOrder = new();
 
+        // Add a RecyclableMemoryStreamManager
+
+        private readonly RecyclableMemoryStreamManager _memoryStreamManager;
+
+
         private bool _isFirstSegment = true;
         private long _currentDataSegmentStart = 0;
         private long _currentIndexSegmentStart = 0; // <-- FIX: Track index segment start
@@ -40,7 +47,9 @@ namespace TdmsSharp
 
             _fileObject = new TdmsFile();
 
-            // Create main file and index file
+            // Initialize the RecyclableMemoryStreamManager
+            _memoryStreamManager = new RecyclableMemoryStreamManager();
+
             _fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, false);
             _indexStream = new FileStream(filePath + "_index", FileMode.Create, FileAccess.Write, FileShare.Read, 4096, false);
 
@@ -84,7 +93,8 @@ namespace TdmsSharp
                 return existingChannel;
             }
 
-            var channel = new TdmsChannel(groupName, channelName, dataType);
+            // Pass the memory stream manager to the TdmsChannel constructor
+            var channel = new TdmsChannel(groupName, channelName, dataType, _memoryStreamManager);
             _channels[key] = channel;
             _channelOrder.Add(key);
             return channel;
@@ -265,8 +275,8 @@ namespace TdmsSharp
 
             // === UPDATE LEAD-INS with actual sizes ===
             // Data file lead-in update
-            UpdateLeadIn(_fileStream, _fileWriter, 
-                dataSegmentStart, 
+            UpdateLeadIn(_fileStream, _fileWriter,
+                dataSegmentStart,
                 dataNextSegmentOffset,
                 (ulong)metadataSize);
 
@@ -303,7 +313,7 @@ namespace TdmsSharp
             writer.Write((ulong)0);
         }
 
-        private void UpdateLeadIn(FileStream stream, BinaryWriter writer, 
+        private void UpdateLeadIn(FileStream stream, BinaryWriter writer,
             long segmentStart, ulong nextSegmentOffset, ulong rawDataOffset)
         {
             var currentPosition = stream.Position;
@@ -470,23 +480,31 @@ namespace TdmsSharp
             Dispose();
         }
 
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+
+            if (disposing)
+            {
+                // Dispose of all channels
+                foreach (var channel in _channels.Values)
+                {
+                    channel.Dispose();
+                }
+
+                _fileWriter?.Dispose();
+                _indexWriter?.Dispose();
+                _fileStream?.Dispose();
+                _indexStream?.Dispose();
+            }
+
+            _disposed = true;
+        }
+
         public void Dispose()
         {
-            if (!_disposed)
-            {
-                try
-                {
-                    Flush();
-                }
-                finally
-                {
-                    _fileWriter?.Dispose();
-                    _indexWriter?.Dispose();
-                    _fileStream?.Dispose();
-                    _indexStream?.Dispose();
-                    _disposed = true;
-                }
-            }
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }
