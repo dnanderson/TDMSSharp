@@ -165,56 +165,203 @@ namespace TdmsSharp
             uint propertyCount = ReadUInt32();
         }
 
+        // Original method - reads all data at once
         internal T[] ReadChannelData<T>(TdmsChannelReader channel) where T : unmanaged
         {
-            var allValues = new List<T>();
+            long totalValues = (long)channel.DataIndices.Sum(idx => (decimal)idx.NumberOfValues);
+            if (totalValues > int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    $"Channel has {totalValues} values which exceeds array size limit. Use ReadChannelDataChunk or StreamData instead.");
+            }
+            return ReadChannelDataChunk<T>(channel, 0, (int)totalValues);
+        }
+
+        // New method - reads a chunk of data
+        internal T[] ReadChannelDataChunk<T>(TdmsChannelReader channel, long startIndex, int count) where T : unmanaged
+        {
+            if (count <= 0) return Array.Empty<T>();
+
+            var result = new T[count];
+            int resultOffset = 0;
+            long currentIndex = 0;
+
             foreach (var indexInfo in channel.DataIndices)
             {
                 if (indexInfo.NumberOfValues == 0) continue;
+
+                long indexStart = currentIndex;
+                long indexEnd = currentIndex + (long)indexInfo.NumberOfValues;
+
+                // Check if this index overlaps with our requested range
+                if (indexEnd <= startIndex)
+                {
+                    currentIndex = indexEnd;
+                    continue; // This index is entirely before our range
+                }
+
+                if (indexStart >= startIndex + count)
+                {
+                    break; // We've read everything we need
+                }
+
+                // Calculate the range to read from this index
+                long readStart = Math.Max(0, startIndex - indexStart);
+                long readEnd = Math.Min((long)indexInfo.NumberOfValues, startIndex + count - indexStart);
+                int readCount = (int)(readEnd - readStart);
+
                 var segment = indexInfo.Segment;
                 if (segment.IsInterleaved) throw new NotSupportedException("Interleaved data reading is not yet supported.");
 
-                long singleChunkTotalSize = segment.ActiveChannels.Sum(ch => (long)GetChunkDataSize(ch, segment));
-                long startOffsetInChunk = GetChannelOffsetInChunk(channel, segment);
-                long firstChunkStart = segment.AbsoluteOffset + 28 + segment.RawDataOffset;
                 _isBigEndian = segment.IsBigEndian;
 
-                for (ulong i = 0; i < segment.ChunkCount; i++)
-                {
-                    long currentChunkStart = firstChunkStart + ((long)i * singleChunkTotalSize);
-                    long channelDataAbsolutePos = currentChunkStart + startOffsetInChunk;
+                // Read the data from this index
+                var chunkData = ReadDataFromSegment<T>(channel, segment, indexInfo, (int)readStart, readCount);
+                Array.Copy(chunkData, 0, result, resultOffset, chunkData.Length);
+                resultOffset += chunkData.Length;
 
-                    _stream.Seek(channelDataAbsolutePos, SeekOrigin.Begin);
-                    allValues.AddRange(TdmsDataTypeReader.ReadArray<T>(_stream, (int)indexInfo.NumberOfValues, _isBigEndian));
-                }
+                currentIndex = indexEnd;
             }
-            return allValues.ToArray();
+
+            return result;
         }
 
+        private T[] ReadDataFromSegment<T>(TdmsChannelReader channel, TdmsSegment segment, RawDataIndexInfo indexInfo, int skipValues, int readCount) where T : unmanaged
+        {
+            var values = new List<T>();
+            long singleChunkTotalSize = segment.ActiveChannels.Sum(ch => (long)GetChunkDataSize(ch, segment));
+            long startOffsetInChunk = GetChannelOffsetInChunk(channel, segment);
+            long firstChunkStart = segment.AbsoluteOffset + 28 + segment.RawDataOffset;
+
+            int valuesPerChunk = (int)indexInfo.NumberOfValues;
+            int typeSize = TdmsDataTypeSizeHelper.GetSize(indexInfo.DataType);
+
+            int remainingSkip = skipValues;
+            int remainingRead = readCount;
+
+            for (ulong i = 0; i < segment.ChunkCount && remainingRead > 0; i++)
+            {
+                long currentChunkStart = firstChunkStart + ((long)i * singleChunkTotalSize);
+                long channelDataAbsolutePos = currentChunkStart + startOffsetInChunk;
+
+                // Determine how many values to skip and read in this chunk
+                if (remainingSkip >= valuesPerChunk)
+                {
+                    remainingSkip -= valuesPerChunk;
+                    continue;
+                }
+
+                int skipInChunk = remainingSkip;
+                int readInChunk = Math.Min(valuesPerChunk - skipInChunk, remainingRead);
+
+                _stream.Seek(channelDataAbsolutePos + (skipInChunk * typeSize), SeekOrigin.Begin);
+                var chunkValues = TdmsDataTypeReader.ReadArray<T>(_stream, readInChunk, _isBigEndian);
+                values.AddRange(chunkValues);
+
+                remainingSkip = 0;
+                remainingRead -= readInChunk;
+            }
+
+            return values.ToArray();
+        }
+
+        // Original method - reads all strings at once
         internal string[] ReadStringChannelData(TdmsChannelReader channel)
         {
-            var allValues = new List<string>();
+            long totalValues = (long)channel.DataIndices.Sum(idx => (decimal)idx.NumberOfValues);
+            if (totalValues > int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    $"Channel has {totalValues} values which exceeds array size limit. Use ReadStringChannelDataChunk or StreamStringData instead.");
+            }
+            return ReadStringChannelDataChunk(channel, 0, (int)totalValues);
+        }
+
+        // New method - reads a chunk of strings
+        internal string[] ReadStringChannelDataChunk(TdmsChannelReader channel, long startIndex, int count)
+        {
+            if (count <= 0) return Array.Empty<string>();
+
+            var result = new string[count];
+            int resultOffset = 0;
+            long currentIndex = 0;
+
             foreach (var indexInfo in channel.DataIndices)
             {
                 if (indexInfo.NumberOfValues == 0) continue;
+
+                long indexStart = currentIndex;
+                long indexEnd = currentIndex + (long)indexInfo.NumberOfValues;
+
+                if (indexEnd <= startIndex)
+                {
+                    currentIndex = indexEnd;
+                    continue;
+                }
+
+                if (indexStart >= startIndex + count)
+                {
+                    break;
+                }
+
+                long readStart = Math.Max(0, startIndex - indexStart);
+                long readEnd = Math.Min((long)indexInfo.NumberOfValues, startIndex + count - indexStart);
+                int readCount = (int)(readEnd - readStart);
+
                 var segment = indexInfo.Segment;
                 if (segment.IsInterleaved) throw new NotSupportedException("Interleaved string data is not supported.");
 
-                long singleChunkTotalSize = segment.ActiveChannels.Sum(ch => (long)GetChunkDataSize(ch, segment));
-                long startOffsetInChunk = GetChannelOffsetInChunk(channel, segment);
-                long firstChunkStart = segment.AbsoluteOffset + 28 + segment.RawDataOffset;
                 _isBigEndian = segment.IsBigEndian;
 
-                for (ulong i = 0; i < segment.ChunkCount; i++)
-                {
-                    long currentChunkStart = firstChunkStart + ((long)i * singleChunkTotalSize);
-                    long channelDataAbsolutePos = currentChunkStart + startOffsetInChunk;
+                var chunkData = ReadStringDataFromSegment(channel, segment, indexInfo, (int)readStart, readCount);
+                Array.Copy(chunkData, 0, result, resultOffset, chunkData.Length);
+                resultOffset += chunkData.Length;
 
-                    _stream.Seek(channelDataAbsolutePos, SeekOrigin.Begin);
-                    allValues.AddRange(TdmsDataTypeReader.ReadStringArray(_stream, indexInfo.NumberOfValues, _isBigEndian));
-                }
+                currentIndex = indexEnd;
             }
-            return allValues.ToArray();
+
+            return result;
+        }
+
+        private string[] ReadStringDataFromSegment(TdmsChannelReader channel, TdmsSegment segment, RawDataIndexInfo indexInfo, int skipValues, int readCount)
+        {
+            var values = new List<string>();
+            long singleChunkTotalSize = segment.ActiveChannels.Sum(ch => (long)GetChunkDataSize(ch, segment));
+            long startOffsetInChunk = GetChannelOffsetInChunk(channel, segment);
+            long firstChunkStart = segment.AbsoluteOffset + 28 + segment.RawDataOffset;
+
+            int valuesPerChunk = (int)indexInfo.NumberOfValues;
+            int remainingSkip = skipValues;
+            int remainingRead = readCount;
+
+            for (ulong i = 0; i < segment.ChunkCount && remainingRead > 0; i++)
+            {
+                long currentChunkStart = firstChunkStart + ((long)i * singleChunkTotalSize);
+                long channelDataAbsolutePos = currentChunkStart + startOffsetInChunk;
+
+                if (remainingSkip >= valuesPerChunk)
+                {
+                    remainingSkip -= valuesPerChunk;
+                    continue;
+                }
+
+                // For strings, we need to read all strings in the chunk and then slice
+                _stream.Seek(channelDataAbsolutePos, SeekOrigin.Begin);
+                var allStringsInChunk = TdmsDataTypeReader.ReadStringArray(_stream, indexInfo.NumberOfValues, _isBigEndian);
+
+                int skipInChunk = remainingSkip;
+                int readInChunk = Math.Min(valuesPerChunk - skipInChunk, remainingRead);
+
+                for (int j = 0; j < readInChunk; j++)
+                {
+                    values.Add(allStringsInChunk[skipInChunk + j]);
+                }
+
+                remainingSkip = 0;
+                remainingRead -= readInChunk;
+            }
+
+            return values.ToArray();
         }
 
         private ulong GetChunkDataSize(TdmsChannelReader channel, TdmsSegment segment)
