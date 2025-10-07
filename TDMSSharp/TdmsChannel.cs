@@ -153,10 +153,16 @@ namespace TdmsSharp
                 _lastWrittenNumberOfValues = _rawDataIndex.NumberOfValues;
             }
             // Dispose the stream to return it to the pool
-            _dataBuffer.Dispose();
-            // Get a new stream for the next set of data
-            _dataBuffer = (RecyclableMemoryStream)_memoryStreamManager.GetStream();
-
+            var oldBuffer = _dataBuffer;
+            try
+            {
+                _dataBuffer = (RecyclableMemoryStream)_memoryStreamManager.GetStream();
+            }
+            finally
+            {
+                oldBuffer.Dispose();
+            }
+            
             _totalValuesWritten += _rawDataIndex.NumberOfValues;
             _rawDataIndex.NumberOfValues = 0;
             _rawDataIndex.TotalSizeInBytes = 0;

@@ -522,6 +522,13 @@ namespace TdmsSharp
                 }
                 finally
                 {
+                    // Dispose all channels to return their streams to the pool
+                    foreach (var channel in _channels.Values)
+                    {
+                        channel?.Dispose();
+                    }
+                    _channels.Clear();
+
                     _fileWriter?.Dispose();
                     _indexWriter?.Dispose();
                     _fileStream?.Dispose();
