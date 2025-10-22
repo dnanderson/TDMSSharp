@@ -143,4 +143,29 @@ public class ReaderTests
             }
         );
     }
+
+    [Fact]
+    public void TestMultiSegmentWithoutMetadata()
+    {
+        RunTest(
+            writer => {
+                var channel = writer.CreateChannel("MultiSegment", "Data", TdmsDataType.I16);
+
+                channel.WriteValues(new short[] { 1, 2, 3 });
+                writer.WriteSegment(); // Segment 1 with metadata
+
+                channel.WriteValues(new short[] { 4, 5, 6 });
+                writer.WriteSegment(); // Segment 2, should append raw data only
+            },
+            file => {
+                var group = file.GetGroup("MultiSegment");
+                Assert.NotNull(group);
+                var channelReader = group.GetChannel("Data");
+                Assert.NotNull(channelReader);
+
+                var readData = channelReader.ReadData<short>();
+                Assert.Equal(new short[] { 1, 2, 3, 4, 5, 6 }, readData);
+            }
+        );
+    }
 }

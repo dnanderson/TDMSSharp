@@ -28,7 +28,7 @@ namespace TdmsSharp
         /// </summary>
         public long GetTotalValueCount()
         {
-            return (long)DataIndices.Sum(idx => (decimal)idx.NumberOfValues);
+            return (long)DataIndices.Sum(idx => (decimal)idx.NumberOfValues * idx.Segment.ChunkCount);
         }
 
         /// <summary>

@@ -168,7 +168,7 @@ namespace TdmsSharp
         // Original method - reads all data at once
         internal T[] ReadChannelData<T>(TdmsChannelReader channel) where T : unmanaged
         {
-            long totalValues = (long)channel.DataIndices.Sum(idx => (decimal)idx.NumberOfValues);
+            long totalValues = channel.GetTotalValueCount();
             if (totalValues > int.MaxValue)
             {
                 throw new InvalidOperationException(
@@ -190,8 +190,10 @@ namespace TdmsSharp
             {
                 if (indexInfo.NumberOfValues == 0) continue;
 
+                long totalValuesInIndex = (long)indexInfo.NumberOfValues * (long)indexInfo.Segment.ChunkCount;
+
                 long indexStart = currentIndex;
-                long indexEnd = currentIndex + (long)indexInfo.NumberOfValues;
+                long indexEnd = currentIndex + totalValuesInIndex;
 
                 // Check if this index overlaps with our requested range
                 if (indexEnd <= startIndex)
@@ -207,7 +209,7 @@ namespace TdmsSharp
 
                 // Calculate the range to read from this index
                 long readStart = Math.Max(0, startIndex - indexStart);
-                long readEnd = Math.Min((long)indexInfo.NumberOfValues, startIndex + count - indexStart);
+                long readEnd = Math.Min(totalValuesInIndex, startIndex + count - indexStart);
                 int readCount = (int)(readEnd - readStart);
 
                 var segment = indexInfo.Segment;
@@ -268,7 +270,7 @@ namespace TdmsSharp
         // Original method - reads all strings at once
         internal string[] ReadStringChannelData(TdmsChannelReader channel)
         {
-            long totalValues = (long)channel.DataIndices.Sum(idx => (decimal)idx.NumberOfValues);
+            long totalValues = channel.GetTotalValueCount();
             if (totalValues > int.MaxValue)
             {
                 throw new InvalidOperationException(
@@ -290,8 +292,10 @@ namespace TdmsSharp
             {
                 if (indexInfo.NumberOfValues == 0) continue;
 
+                long totalValuesInIndex = (long)indexInfo.NumberOfValues * (long)indexInfo.Segment.ChunkCount;
+
                 long indexStart = currentIndex;
-                long indexEnd = currentIndex + (long)indexInfo.NumberOfValues;
+                long indexEnd = currentIndex + totalValuesInIndex;
 
                 if (indexEnd <= startIndex)
                 {
@@ -305,7 +309,7 @@ namespace TdmsSharp
                 }
 
                 long readStart = Math.Max(0, startIndex - indexStart);
-                long readEnd = Math.Min((long)indexInfo.NumberOfValues, startIndex + count - indexStart);
+                long readEnd = Math.Min(totalValuesInIndex, startIndex + count - indexStart);
                 int readCount = (int)(readEnd - readStart);
 
                 var segment = indexInfo.Segment;
