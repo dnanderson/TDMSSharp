@@ -60,6 +60,12 @@ var data = file.GetGroup("Acquisition")?.GetChannel("Waveform")?.ReadData<short>
 - The writer decides between raw append and creating a new metadata segment based on append eligibility rules.
 - String channels are forced to new segments to keep string offset-table/index semantics safe.
 
+### Async Writer Batching
+
+- `AsyncTdmsWriter.WriteChannelData(...)` queues and buffers data only.
+- Call `WriteSegmentAsync()` to persist a segment boundary when you choose.
+- Call `FlushAsync()` to persist buffered data and flush streams.
+
 ## Running Tests
 
 ### .NET usage tests

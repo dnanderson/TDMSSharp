@@ -33,7 +33,8 @@ namespace TdmsSharp
         #region Public Thread-Safe API
 
         /// <summary>
-        /// Writes numeric data to a channel asynchronously.
+        /// Buffers numeric data for a channel asynchronously.
+        /// Call <see cref="WriteSegmentAsync"/> or <see cref="FlushAsync"/> to persist buffered data.
         /// </summary>
         public void WriteChannelData<T>(string groupName, string channelName, T[] data) where T : unmanaged
         {
@@ -43,7 +44,8 @@ namespace TdmsSharp
         }
 
         /// <summary>
-        /// Writes numeric data to a channel asynchronously (ReadOnlyMemory version).
+        /// Buffers numeric data for a channel asynchronously (ReadOnlyMemory version).
+        /// Call <see cref="WriteSegmentAsync"/> or <see cref="FlushAsync"/> to persist buffered data.
         /// </summary>
         public void WriteChannelData<T>(string groupName, string channelName, ReadOnlyMemory<T> data) where T : unmanaged
         {
@@ -53,7 +55,8 @@ namespace TdmsSharp
         }
 
         /// <summary>
-        /// Writes string data to a channel asynchronously.
+        /// Buffers string data for a channel asynchronously.
+        /// Call <see cref="WriteSegmentAsync"/> or <see cref="FlushAsync"/> to persist buffered data.
         /// </summary>
         public void WriteStringChannelData(string groupName, string channelName, string[] data)
         {
@@ -90,6 +93,25 @@ namespace TdmsSharp
             ThrowIfDisposed();
             var command = new SetChannelPropertyCommand<T>(groupName, channelName, name, value);
             EnqueueCommand(command);
+        }
+
+        /// <summary>
+        /// Writes a TDMS segment from currently buffered channel data and metadata.
+        /// </summary>
+        public Task WriteSegmentAsync()
+        {
+            ThrowIfDisposed();
+            var writeSegmentCommand = new WriteSegmentCommand();
+            EnqueueCommand(writeSegmentCommand);
+            return writeSegmentCommand.CompletionTask;
+        }
+
+        /// <summary>
+        /// Synchronously writes a TDMS segment from currently buffered channel data and metadata.
+        /// </summary>
+        public void WriteSegment()
+        {
+            WriteSegmentAsync().GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -172,10 +194,24 @@ namespace TdmsSharp
         public void Dispose()
         {
             if (_isDisposed) return;
+
+            if (_writerException == null)
+            {
+                try
+                {
+                    FlushAsync().GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    // Any writer-side failure is captured and rethrown after cleanup.
+                }
+            }
+
             _isDisposed = true;
 
             // Signal shutdown and wait for writer task to complete
             _cancellationTokenSource.Cancel();
+            _commandSignal.Release();
 
             try
             {
@@ -255,7 +291,6 @@ namespace TdmsSharp
                 ?? writer.CreateChannel(_groupName, _channelName, dataType);
             
             channel.WriteValues(_data.Span);
-            writer.WriteSegment();
         }
     }
 
@@ -281,7 +316,22 @@ namespace TdmsSharp
                 ?? writer.CreateChannel(_groupName, _channelName, TdmsDataType.String);
             
             channel.WriteStrings(_data);
+        }
+    }
+
+    /// <summary>
+    /// Command to write a segment from buffered data.
+    /// </summary>
+    internal class WriteSegmentCommand : TdmsWriteCommand
+    {
+        public WriteSegmentCommand() : base(requiresCompletion: true)
+        {
+        }
+
+        public override void Execute(TdmsFileWriter writer)
+        {
             writer.WriteSegment();
+            SetCompleted();
         }
     }
 

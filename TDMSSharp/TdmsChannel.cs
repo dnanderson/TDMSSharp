@@ -110,6 +110,18 @@ namespace TdmsSharp
                 return;
             }
 
+            if (typeof(T) == typeof(sbyte)) { WriteValues((ReadOnlySpan<sbyte>)(sbyte[])(object)values); return; }
+            if (typeof(T) == typeof(short)) { WriteValues((ReadOnlySpan<short>)(short[])(object)values); return; }
+            if (typeof(T) == typeof(int)) { WriteValues((ReadOnlySpan<int>)(int[])(object)values); return; }
+            if (typeof(T) == typeof(long)) { WriteValues((ReadOnlySpan<long>)(long[])(object)values); return; }
+            if (typeof(T) == typeof(byte)) { WriteValues((ReadOnlySpan<byte>)(byte[])(object)values); return; }
+            if (typeof(T) == typeof(ushort)) { WriteValues((ReadOnlySpan<ushort>)(ushort[])(object)values); return; }
+            if (typeof(T) == typeof(uint)) { WriteValues((ReadOnlySpan<uint>)(uint[])(object)values); return; }
+            if (typeof(T) == typeof(ulong)) { WriteValues((ReadOnlySpan<ulong>)(ulong[])(object)values); return; }
+            if (typeof(T) == typeof(float)) { WriteValues((ReadOnlySpan<float>)(float[])(object)values); return; }
+            if (typeof(T) == typeof(double)) { WriteValues((ReadOnlySpan<double>)(double[])(object)values); return; }
+            if (typeof(T) == typeof(bool)) { WriteValues((ReadOnlySpan<bool>)(bool[])(object)values); return; }
+
             foreach (var value in values)
             {
                 WriteValueInternal(value);
