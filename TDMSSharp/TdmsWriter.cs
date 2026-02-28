@@ -13,6 +13,18 @@ namespace TdmsSharp
     /// </summary>
     public class TdmsFileWriter : IDisposable
     {
+        public enum AppendBlockReason
+        {
+            None = 0,
+            FirstSegment,
+            NoRawData,
+            PropertyChanged,
+            StringDataPolicy,
+            ActiveChannelOrderChanged,
+            RawDataIndexChanged,
+            TocModeChanged
+        }
+
         private const string TDMS_TAG = "TDSm";
         private const string TDMS_INDEX_TAG = "TDSh";
         private const uint TDMS_VERSION = 4713;
@@ -30,6 +42,10 @@ namespace TdmsSharp
         private readonly Dictionary<string, TdmsChannel> _channels = new();
         private readonly List<string> _channelOrder = new();
         private List<string> _lastSegmentActiveChannelOrder = new();
+        private readonly Dictionary<string, ChannelWriteState> _lastSegmentChannelStates = new();
+        private ulong _lastSegmentAppendSignature;
+        private bool _hasLastSegmentAppendSignature;
+        private TocFlags _lastSegmentTocFlags = TocFlags.None;
 
         // Add a RecyclableMemoryStreamManager
 
@@ -40,6 +56,10 @@ namespace TdmsSharp
         private long _currentDataSegmentStart = 0;
         private long _currentIndexSegmentStart = 0; // <-- FIX: Track index segment start
         private bool _disposed = false;
+
+        public AppendBlockReason LastAppendBlockReason { get; private set; } = AppendBlockReason.None;
+
+        private readonly record struct ChannelWriteState(TdmsDataType DataType, ulong NumberOfValues, ulong TotalSizeInBytes);
 
         public TdmsFileWriter(string filePath)
         {
@@ -176,10 +196,8 @@ namespace TdmsSharp
             }
 
             var hasRawData = _channels.Values.Any(c => c.HasDataToWrite);
-            var activeChannelOrder = GetActiveChannelOrder();
-            var newObjectList = _isFirstSegment || (hasRawData && HasChannelOrderChanged(activeChannelOrder));
-            var hasStringChannelData = _channels.Values.Any(c => c.HasDataToWrite && c.DataType == TdmsDataType.String);
-            var hasMetaData = DetermineIfMetaDataNeeded() || newObjectList || hasStringChannelData;
+            var newObjectList = _isFirstSegment || (hasRawData && HasChannelOrderChanged(GetActiveChannelOrder()));
+            var hasMetaData = DetermineIfMetaDataNeeded() || newObjectList;
 
             if (!hasMetaData && !hasRawData)
                 return; // Nothing to write
@@ -187,8 +205,23 @@ namespace TdmsSharp
             // If we have raw data but no metadata changes, we can append directly
             if (!hasMetaData && hasRawData && !_isFirstSegment)
             {
-                AppendRawDataOnly();
-                return;
+                if (CanAppendToPreviousSegment(out var reason))
+                {
+                    LastAppendBlockReason = AppendBlockReason.None;
+                    AppendRawDataOnly();
+                    return;
+                }
+
+                LastAppendBlockReason = reason;
+                hasMetaData = true;
+            }
+            else if (hasRawData)
+            {
+                LastAppendBlockReason = AppendBlockReason.None;
+            }
+            else
+            {
+                LastAppendBlockReason = AppendBlockReason.NoRawData;
             }
 
             // Write a new segment
@@ -259,6 +292,8 @@ namespace TdmsSharp
             _indexStream.Seek(_currentIndexSegmentStart + 12, SeekOrigin.Begin);
             _indexWriter.Write(newSegmentSize); // Write the same new size
             _indexStream.Seek(indexFileOriginalEnd, SeekOrigin.Begin);
+
+            CaptureCurrentRawWriteState();
 
             // Clear buffers
             foreach (var channel in _channels.Values)
@@ -336,8 +371,9 @@ namespace TdmsSharp
             _currentIndexSegmentStart = indexSegmentStart; // <-- FIX: Update index start position
             if (hasRawData)
             {
-                _lastSegmentActiveChannelOrder = GetActiveChannelOrder();
+                CaptureCurrentRawWriteState();
             }
+            _lastSegmentTocFlags = tocFlags;
 
             // Clear modification flags and data buffers
             ResetAllFlags();
@@ -499,6 +535,129 @@ namespace TdmsSharp
         private List<string> GetActiveChannelOrder()
         {
             return _channelOrder.Where(key => _channels[key].HasDataToWrite).ToList();
+        }
+
+        public bool CanAppendToPreviousSegment(out AppendBlockReason reason)
+        {
+            var activeChannelOrder = GetActiveChannelOrder();
+            if (_isFirstSegment)
+            {
+                reason = AppendBlockReason.FirstSegment;
+                return false;
+            }
+
+            if (activeChannelOrder.Count == 0)
+            {
+                reason = AppendBlockReason.NoRawData;
+                return false;
+            }
+
+            if (HasPropertyChanges())
+            {
+                reason = AppendBlockReason.PropertyChanged;
+                return false;
+            }
+
+            if ((_lastSegmentTocFlags & (TocFlags.InterleavedData | TocFlags.BigEndian | TocFlags.DAQmxRawData)) != TocFlags.None)
+            {
+                reason = AppendBlockReason.TocModeChanged;
+                return false;
+            }
+
+            if (_channels.Values.Any(c => c.HasDataToWrite && c.DataType == TdmsDataType.String))
+            {
+                reason = AppendBlockReason.StringDataPolicy;
+                return false;
+            }
+
+            if (HasChannelOrderChanged(activeChannelOrder))
+            {
+                reason = AppendBlockReason.ActiveChannelOrderChanged;
+                return false;
+            }
+
+            var currentSignature = ComputeAppendSignature(activeChannelOrder);
+            if (_hasLastSegmentAppendSignature && currentSignature != _lastSegmentAppendSignature)
+            {
+                reason = AppendBlockReason.RawDataIndexChanged;
+                return false;
+            }
+
+            foreach (var key in activeChannelOrder)
+            {
+                var channel = _channels[key];
+                var index = channel.RawDataIndex;
+                if (!_lastSegmentChannelStates.TryGetValue(key, out var previous))
+                {
+                    reason = AppendBlockReason.RawDataIndexChanged;
+                    return false;
+                }
+
+                if (previous.DataType != channel.DataType || previous.NumberOfValues != index.NumberOfValues)
+                {
+                    reason = AppendBlockReason.RawDataIndexChanged;
+                    return false;
+                }
+
+                if (channel.DataType == TdmsDataType.String && previous.TotalSizeInBytes != index.TotalSizeInBytes)
+                {
+                    reason = AppendBlockReason.RawDataIndexChanged;
+                    return false;
+                }
+            }
+
+            reason = AppendBlockReason.None;
+            return true;
+        }
+
+        private bool HasPropertyChanges()
+        {
+            if (_fileObject.HasPropertiesModified)
+                return true;
+
+            if (_groups.Values.Any(g => g.HasPropertiesModified))
+                return true;
+
+            return _channels.Values.Any(c => c.HasPropertiesModified);
+        }
+
+        private void CaptureCurrentRawWriteState()
+        {
+            var activeChannelOrder = GetActiveChannelOrder();
+            _lastSegmentActiveChannelOrder = activeChannelOrder;
+            _lastSegmentChannelStates.Clear();
+
+            foreach (var key in activeChannelOrder)
+            {
+                var channel = _channels[key];
+                var index = channel.RawDataIndex;
+                _lastSegmentChannelStates[key] = new ChannelWriteState(
+                    channel.DataType,
+                    index.NumberOfValues,
+                    index.TotalSizeInBytes);
+            }
+
+            _lastSegmentAppendSignature = ComputeAppendSignature(activeChannelOrder);
+            _hasLastSegmentAppendSignature = true;
+        }
+
+        private ulong ComputeAppendSignature(IReadOnlyList<string> activeChannelOrder)
+        {
+            var hash = new HashCode();
+            for (int i = 0; i < activeChannelOrder.Count; i++)
+            {
+                var key = activeChannelOrder[i];
+                var channel = _channels[key];
+                var index = channel.RawDataIndex;
+
+                hash.Add(key, StringComparer.Ordinal);
+                hash.Add((int)channel.DataType);
+                hash.Add(index.NumberOfValues);
+                hash.Add(index.TotalSizeInBytes);
+            }
+
+            var signed = hash.ToHashCode();
+            return unchecked((ulong)(uint)signed);
         }
 
         private void WriteString(BinaryWriter writer, string value)

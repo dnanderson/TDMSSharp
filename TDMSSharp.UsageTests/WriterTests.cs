@@ -305,4 +305,76 @@ public class WriterTests
 
         Cleanup();
     }
+
+    [Fact]
+    public void TestCanAppendToPreviousSegment_ReturnsTrueForSameStructure()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            var c1 = writer.CreateChannel("G", "A", TdmsDataType.I32);
+            var c2 = writer.CreateChannel("G", "B", TdmsDataType.I16);
+
+            c1.WriteValues(new[] { 1, 2, 3 });
+            c2.WriteValues(new short[] { 4, 5, 6 });
+            writer.WriteSegment();
+
+            c1.WriteValues(new[] { 7, 8, 9 });
+            c2.WriteValues(new short[] { 10, 11, 12 });
+
+            Assert.True(writer.CanAppendToPreviousSegment(out var reason));
+            Assert.Equal(TdmsFileWriter.AppendBlockReason.None, reason);
+
+            writer.WriteSegment();
+        }
+
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)))
+        {
+            var file = reader.ReadFile();
+            Assert.Single(file.Segments);
+            Assert.Equal(new[] { 1, 2, 3, 7, 8, 9 }, file.GetGroup("G")?.GetChannel("A")?.ReadData<int>());
+            Assert.Equal(new short[] { 4, 5, 6, 10, 11, 12 }, file.GetGroup("G")?.GetChannel("B")?.ReadData<short>());
+        }
+
+        Cleanup();
+    }
+
+    [Fact]
+    public void TestCanAppendToPreviousSegment_BlockedByPropertyChange()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            var c1 = writer.CreateChannel("G", "A", TdmsDataType.I32);
+            c1.WriteValues(new[] { 1, 2, 3 });
+            writer.WriteSegment();
+
+            c1.SetProperty("unit", "V");
+            c1.WriteValues(new[] { 4, 5, 6 });
+
+            Assert.False(writer.CanAppendToPreviousSegment(out var reason));
+            Assert.Equal(TdmsFileWriter.AppendBlockReason.PropertyChanged, reason);
+        }
+
+        Cleanup();
+    }
+
+    [Fact]
+    public void TestCanAppendToPreviousSegment_BlockedByStringPolicy()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            var c1 = writer.CreateChannel("G", "S", TdmsDataType.String);
+            c1.WriteStrings(new[] { "a", "b" });
+            writer.WriteSegment();
+
+            c1.WriteStrings(new[] { "c", "d" });
+
+            Assert.False(writer.CanAppendToPreviousSegment(out var reason));
+            Assert.Equal(TdmsFileWriter.AppendBlockReason.StringDataPolicy, reason);
+        }
+
+        Cleanup();
+    }
 }
