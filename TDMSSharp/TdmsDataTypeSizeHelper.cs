@@ -1,8 +1,16 @@
 // TdmsDataTypeSizeHelper.cs
 namespace TdmsSharp
 {
+    /// <summary>
+    /// Returns fixed element widths for TDMS data types.
+    /// </summary>
     public static class TdmsDataTypeSizeHelper
     {
+        /// <summary>
+        /// Gets the fixed element width in bytes.
+        /// </summary>
+        /// <param name="dataType">TDMS data type.</param>
+        /// <returns>Element width in bytes, or 0 for variable-length types.</returns>
         public static int GetSize(TdmsDataType dataType)
         {
             switch (dataType)

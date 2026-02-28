@@ -1,0 +1,44 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "src": "..",
+          "files": [
+            "TDMSSharp/TDMSSharp.csproj"
+          ]
+        }
+      ],
+      "dest": "api"
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [
+          "api/**.yml",
+          "api/index.md",
+          "index.md",
+          "toc.yml",
+          "articles/**.md"
+        ]
+      }
+    ],
+    "resource": [
+      {
+        "files": [
+          "images/**"
+        ]
+      }
+    ],
+    "globalMetadata": {
+      "_appName": "TDMSSharp API Docs",
+      "_appTitle": "TDMSSharp API Docs",
+      "_enableSearch": true
+    },
+    "template": [
+      "default"
+    ],
+    "dest": "_site"
+  }
+}

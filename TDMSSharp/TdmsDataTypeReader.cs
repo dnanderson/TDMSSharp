@@ -18,6 +18,13 @@ namespace TdmsSharp
             return buffer;
         }
 
+        /// <summary>
+        /// Reads a single unmanaged value from the stream.
+        /// </summary>
+        /// <typeparam name="T">Target unmanaged value type.</typeparam>
+        /// <param name="stream">Source stream.</param>
+        /// <param name="isBigEndian">Whether source bytes are big-endian.</param>
+        /// <returns>Decoded value.</returns>
         public static T ReadData<T>(Stream stream, bool isBigEndian) where T : unmanaged
         {
             int size = System.Runtime.InteropServices.Marshal.SizeOf<T>();
@@ -39,6 +46,14 @@ namespace TdmsSharp
             }
         }
 
+        /// <summary>
+        /// Reads an array of unmanaged values from the stream.
+        /// </summary>
+        /// <typeparam name="T">Target unmanaged element type.</typeparam>
+        /// <param name="stream">Source stream.</param>
+        /// <param name="count">Number of elements to read.</param>
+        /// <param name="isBigEndian">Whether source bytes are big-endian.</param>
+        /// <returns>Array of decoded values.</returns>
         public static T[] ReadArray<T>(Stream stream, int count, bool isBigEndian) where T : unmanaged
         {
             if (count == 0) return Array.Empty<T>();
@@ -62,6 +77,13 @@ namespace TdmsSharp
             return array;
         }
 
+        /// <summary>
+        /// Reads TDMS string-channel payload (offset table + UTF-8 bytes) from the stream.
+        /// </summary>
+        /// <param name="stream">Source stream.</param>
+        /// <param name="numValues">Number of string elements.</param>
+        /// <param name="isBigEndian">Whether source offset table is big-endian.</param>
+        /// <returns>Decoded string array.</returns>
         public static string[] ReadStringArray(Stream stream, ulong numValues, bool isBigEndian)
         {
             if (numValues == 0) return Array.Empty<string>();

@@ -26,9 +26,21 @@ namespace TdmsSharp
         private ulong _lastWrittenTotalSizeInBytes = ulong.MaxValue;
         private readonly List<string> _stringValues = new();
 
+        /// <summary>
+        /// Gets the channel name.
+        /// </summary>
         public string Name { get; }
+        /// <summary>
+        /// Gets the owning group name.
+        /// </summary>
         public string GroupName { get; }
+        /// <summary>
+        /// Gets the fixed TDMS data type for this channel.
+        /// </summary>
         public TdmsDataType DataType => _dataType;
+        /// <summary>
+        /// Gets whether this channel currently has buffered data pending write.
+        /// </summary>
         public bool HasDataToWrite => _hasDataToWrite;
 
         internal RawDataIndex RawDataIndex => _rawDataIndex;
@@ -38,6 +50,13 @@ namespace TdmsSharp
             return _dataBuffer.GetBuffer().AsMemory(0, (int)_dataBuffer.Length);
         }
 
+        /// <summary>
+        /// Initializes a TDMS channel writer object.
+        /// </summary>
+        /// <param name="groupName">Owning group name.</param>
+        /// <param name="name">Channel name.</param>
+        /// <param name="dataType">Channel TDMS data type.</param>
+        /// <param name="memoryStreamManager">Buffer pool manager used for channel staging.</param>
         public TdmsChannel(string groupName, string name, TdmsDataType dataType, RecyclableMemoryStreamManager memoryStreamManager)
         {
             if (string.IsNullOrEmpty(groupName))
@@ -177,6 +196,9 @@ namespace TdmsSharp
             }
         }
 
+        /// <summary>
+        /// Clears change tracking after segment write completion.
+        /// </summary>
         public override void ResetModifiedFlags()
         {
             base.ResetModifiedFlags();
@@ -273,12 +295,19 @@ namespace TdmsSharp
             }
         }
 
+        /// <summary>
+        /// Releases channel buffers.
+        /// </summary>
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
+        /// <summary>
+        /// Releases managed resources when <paramref name="disposing"/> is true.
+        /// </summary>
+        /// <param name="disposing">True to dispose managed resources.</param>
         protected virtual void Dispose(bool disposing)
         {
             if (_disposed) return;

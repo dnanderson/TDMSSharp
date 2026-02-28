@@ -12,8 +12,17 @@ namespace TdmsSharp
     {
         private readonly TdmsReader _fileReader;
 
+        /// <summary>
+        /// Gets the channel name.
+        /// </summary>
         public string Name { get; }
+        /// <summary>
+        /// Gets the most recently known channel data type.
+        /// </summary>
         public TdmsDataType DataType { get; internal set; }
+        /// <summary>
+        /// Gets raw-data index entries, one per segment declaration.
+        /// </summary>
         public List<RawDataIndexInfo> DataIndices { get; } = new List<RawDataIndexInfo>();
 
         internal TdmsChannelReader(string name, TdmsDataType dataType, TdmsReader fileReader)

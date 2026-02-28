@@ -13,15 +13,26 @@ namespace TdmsSharp
     /// </summary>
     public class TdmsFileWriter : IDisposable
     {
+        /// <summary>
+        /// Describes why raw data append optimization cannot be used.
+        /// </summary>
         public enum AppendBlockReason
         {
+            /// <summary>No append blocker was found.</summary>
             None = 0,
+            /// <summary>The file has not written its first segment yet.</summary>
             FirstSegment,
+            /// <summary>No channels currently have buffered raw data.</summary>
             NoRawData,
+            /// <summary>A file, group, or channel property changed and metadata must be written.</summary>
             PropertyChanged,
+            /// <summary>String writes are configured to always force a new segment.</summary>
             StringDataPolicy,
+            /// <summary>The active channel set/order differs from the previous segment.</summary>
             ActiveChannelOrderChanged,
+            /// <summary>Raw-data index shape changed for at least one active channel.</summary>
             RawDataIndexChanged,
+            /// <summary>Segment mode/ToC configuration is incompatible with append.</summary>
             TocModeChanged
         }
 
@@ -57,10 +68,17 @@ namespace TdmsSharp
         private long _currentIndexSegmentStart = 0; // <-- FIX: Track index segment start
         private bool _disposed = false;
 
+        /// <summary>
+        /// Gets the most recent reason append optimization was blocked.
+        /// </summary>
         public AppendBlockReason LastAppendBlockReason { get; private set; } = AppendBlockReason.None;
 
         private readonly record struct ChannelWriteState(TdmsDataType DataType, ulong NumberOfValues, ulong TotalSizeInBytes);
 
+        /// <summary>
+        /// Initializes a writer that creates a TDMS file and a companion index file.
+        /// </summary>
+        /// <param name="filePath">Target path of the TDMS data file.</param>
         public TdmsFileWriter(string filePath)
         {
             if (string.IsNullOrEmpty(filePath))
@@ -537,6 +555,11 @@ namespace TdmsSharp
             return _channelOrder.Where(key => _channels[key].HasDataToWrite).ToList();
         }
 
+        /// <summary>
+        /// Evaluates whether buffered raw data can be appended to the prior segment without writing new metadata.
+        /// </summary>
+        /// <param name="reason">When false, receives the reason append is blocked.</param>
+        /// <returns><c>true</c> when append is safe; otherwise <c>false</c>.</returns>
         public bool CanAppendToPreviousSegment(out AppendBlockReason reason)
         {
             var activeChannelOrder = GetActiveChannelOrder();
@@ -681,6 +704,9 @@ namespace TdmsSharp
             }
         }
 
+        /// <summary>
+        /// Writes any pending segment and flushes file streams.
+        /// </summary>
         public void Flush()
         {
             WriteSegment();
@@ -688,11 +714,17 @@ namespace TdmsSharp
             _indexStream.Flush();
         }
 
+        /// <summary>
+        /// Closes the writer and releases resources.
+        /// </summary>
         public void Close()
         {
             Dispose();
         }
 
+        /// <summary>
+        /// Flushes pending data and disposes underlying streams.
+        /// </summary>
         public void Dispose()
         {
             if (!_disposed)

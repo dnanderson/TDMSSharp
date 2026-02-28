@@ -7,16 +7,27 @@ using System.Text;
 
 namespace TdmsSharp
 {
+    /// <summary>
+    /// Reads TDMS/TDSh streams and exposes channels through <see cref="TdmsFileHolder"/>.
+    /// </summary>
     public class TdmsReader : IDisposable
     {
         private readonly Stream _stream;
         private bool _isBigEndian;
 
+        /// <summary>
+        /// Initializes a reader over an existing TDMS-compatible stream.
+        /// </summary>
+        /// <param name="stream">Input stream positioned anywhere; the reader seeks as needed.</param>
         public TdmsReader(Stream stream)
         {
             _stream = stream;
         }
 
+        /// <summary>
+        /// Parses all segments and returns a materialized file/group/channel hierarchy.
+        /// </summary>
+        /// <returns>The parsed TDMS file model.</returns>
         public TdmsFileHolder ReadFile()
         {
             var file = new TdmsFileHolder();
@@ -507,6 +518,9 @@ namespace TdmsSharp
         }
         #endregion
 
+        /// <summary>
+        /// Disposes the underlying input stream.
+        /// </summary>
         public void Dispose()
         {
             _stream.Dispose();

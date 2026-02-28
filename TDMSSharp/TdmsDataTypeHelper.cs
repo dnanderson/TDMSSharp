@@ -7,6 +7,11 @@ namespace TdmsSharp
     /// </summary>
     public static class TdmsDataTypeHelper
     {
+        /// <summary>
+        /// Maps a CLR type to its TDMS data-type identifier.
+        /// </summary>
+        /// <param name="type">CLR type to map.</param>
+        /// <returns>Equivalent <see cref="TdmsDataType"/> value.</returns>
         public static TdmsDataType GetDataType(Type type)
         {
             if (type == typeof(sbyte)) return TdmsDataType.I8;
@@ -27,6 +32,11 @@ namespace TdmsSharp
             throw new NotSupportedException($"Data type {type} is not supported");
         }
 
+        /// <summary>
+        /// Gets fixed byte width for fixed-size TDMS types.
+        /// </summary>
+        /// <param name="dataType">TDMS data type.</param>
+        /// <returns>Byte width or -1 for variable-size types.</returns>
         public static int GetSize(TdmsDataType dataType)
         {
             return dataType switch
