@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.IO;
 
@@ -22,6 +23,8 @@ namespace TdmsSharp
         private bool _hasDataToWrite = false;
         private ulong _totalValuesWritten = 0;
         private ulong _lastWrittenNumberOfValues = ulong.MaxValue;
+        private ulong _lastWrittenTotalSizeInBytes = ulong.MaxValue;
+        private readonly List<string> _stringValues = new();
 
         public string Name { get; }
         public string GroupName { get; }
@@ -81,6 +84,13 @@ namespace TdmsSharp
                 return;
 
             ValidateDataType<T>();
+
+            if (typeof(T) == typeof(string))
+            {
+                WriteStrings(values.Cast<string>().ToArray());
+                return;
+            }
+
             foreach (var value in values)
             {
                 WriteValueInternal(value);
@@ -118,32 +128,9 @@ namespace TdmsSharp
             if (values == null || values.Length == 0)
                 return;
 
-            // Use a temporary RecyclableMemoryStream for string data
-            using (var stringStream = (RecyclableMemoryStream)_memoryStreamManager.GetStream())
-            {
-                var offsets = new List<uint>();
-                uint cumulativeOffset = 0;
-
-                foreach (var str in values)
-                {
-                    var bytes = System.Text.Encoding.UTF8.GetBytes(str ?? string.Empty);
-                    stringStream.Write(bytes);
-                    cumulativeOffset += (uint)bytes.Length;
-                    offsets.Add(cumulativeOffset);
-                }
-
-                foreach (var offset in offsets)
-                {
-                    _dataBuffer.Write(BitConverter.GetBytes(offset));
-                }
-
-                stringStream.Position = 0;
-                stringStream.CopyTo(_dataBuffer);
-
-                _rawDataIndex.NumberOfValues += (ulong)values.Length;
-                _rawDataIndex.TotalSizeInBytes = (ulong)(values.Length * 4 + stringStream.Length);
-                _hasDataToWrite = true;
-            }
+            _stringValues.AddRange(values.Select(s => s ?? string.Empty));
+            RebuildStringDataBuffer();
+            _hasDataToWrite = true;
         }
 
         internal void ClearDataBuffer()
@@ -151,6 +138,7 @@ namespace TdmsSharp
             if (_hasDataToWrite)
             {
                 _lastWrittenNumberOfValues = _rawDataIndex.NumberOfValues;
+                _lastWrittenTotalSizeInBytes = _rawDataIndex.TotalSizeInBytes;
             }
             // Dispose the stream to return it to the pool
             var oldBuffer = _dataBuffer;
@@ -168,21 +156,23 @@ namespace TdmsSharp
             _rawDataIndex.TotalSizeInBytes = 0;
             _hasDataToWrite = false;
             _rawDataIndex.HasChanged = false;
+            _stringValues.Clear();
         }
 
         internal void UpdateRawDataIndex()
         {
             if (_hasDataToWrite)
             {
-                // The index has changed if the number of values is different from the last write.
-                // It's always considered changed for the first segment a channel is written to.
-                if (_rawDataIndex.NumberOfValues != _lastWrittenNumberOfValues)
+                var hasSameValueCount = _rawDataIndex.NumberOfValues == _lastWrittenNumberOfValues;
+                var hasSameTotalSize = _rawDataIndex.TotalSizeInBytes == _lastWrittenTotalSizeInBytes;
+
+                if (_dataType == TdmsDataType.String)
                 {
-                    _rawDataIndex.HasChanged = true;
+                    _rawDataIndex.HasChanged = !(hasSameValueCount && hasSameTotalSize);
                 }
                 else
                 {
-                    _rawDataIndex.HasChanged = false;
+                    _rawDataIndex.HasChanged = !hasSameValueCount;
                 }
             }
         }
@@ -251,6 +241,36 @@ namespace TdmsSharp
             BitConverter.GetBytes(timestamp.Fractions).CopyTo(bytes, 0);
             BitConverter.GetBytes(timestamp.Seconds).CopyTo(bytes, 8);
             return bytes;
+        }
+
+        private void RebuildStringDataBuffer()
+        {
+            var oldBuffer = _dataBuffer;
+            _dataBuffer = (RecyclableMemoryStream)_memoryStreamManager.GetStream();
+
+            try
+            {
+                using var stringDataStream = (RecyclableMemoryStream)_memoryStreamManager.GetStream();
+
+                uint cumulativeOffset = 0;
+                foreach (var str in _stringValues)
+                {
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(str);
+                    stringDataStream.Write(bytes);
+                    cumulativeOffset += (uint)bytes.Length;
+                    _dataBuffer.Write(BitConverter.GetBytes(cumulativeOffset));
+                }
+
+                stringDataStream.Position = 0;
+                stringDataStream.CopyTo(_dataBuffer);
+
+                _rawDataIndex.NumberOfValues = (ulong)_stringValues.Count;
+                _rawDataIndex.TotalSizeInBytes = (ulong)_dataBuffer.Length;
+            }
+            finally
+            {
+                oldBuffer.Dispose();
+            }
         }
 
         public void Dispose()

@@ -117,6 +117,7 @@ namespace TdmsSharp
                     _stream.Seek(groupRawDataIndexLength, SeekOrigin.Current);
                 }
                 uint propCount = ReadUInt32();
+                SkipProperties(propCount);
                 return;
             }
 
@@ -163,12 +164,13 @@ namespace TdmsSharp
             if (existingInSegment == null) segmentObjects.Add(channel);
 
             uint propertyCount = ReadUInt32();
+            SkipProperties(propertyCount);
         }
 
         // Original method - reads all data at once
         internal T[] ReadChannelData<T>(TdmsChannelReader channel) where T : unmanaged
         {
-            long totalValues = (long)channel.DataIndices.Sum(idx => (decimal)idx.NumberOfValues);
+            long totalValues = channel.DataIndices.Sum(GetExpandedValueCount);
             if (totalValues > int.MaxValue)
             {
                 throw new InvalidOperationException(
@@ -191,7 +193,8 @@ namespace TdmsSharp
                 if (indexInfo.NumberOfValues == 0) continue;
 
                 long indexStart = currentIndex;
-                long indexEnd = currentIndex + (long)indexInfo.NumberOfValues;
+                long expandedIndexValueCount = GetExpandedValueCount(indexInfo);
+                long indexEnd = currentIndex + expandedIndexValueCount;
 
                 // Check if this index overlaps with our requested range
                 if (indexEnd <= startIndex)
@@ -207,7 +210,7 @@ namespace TdmsSharp
 
                 // Calculate the range to read from this index
                 long readStart = Math.Max(0, startIndex - indexStart);
-                long readEnd = Math.Min((long)indexInfo.NumberOfValues, startIndex + count - indexStart);
+                long readEnd = Math.Min(expandedIndexValueCount, startIndex + count - indexStart);
                 int readCount = (int)(readEnd - readStart);
 
                 var segment = indexInfo.Segment;
@@ -268,7 +271,7 @@ namespace TdmsSharp
         // Original method - reads all strings at once
         internal string[] ReadStringChannelData(TdmsChannelReader channel)
         {
-            long totalValues = (long)channel.DataIndices.Sum(idx => (decimal)idx.NumberOfValues);
+            long totalValues = channel.DataIndices.Sum(GetExpandedValueCount);
             if (totalValues > int.MaxValue)
             {
                 throw new InvalidOperationException(
@@ -291,7 +294,8 @@ namespace TdmsSharp
                 if (indexInfo.NumberOfValues == 0) continue;
 
                 long indexStart = currentIndex;
-                long indexEnd = currentIndex + (long)indexInfo.NumberOfValues;
+                long expandedIndexValueCount = GetExpandedValueCount(indexInfo);
+                long indexEnd = currentIndex + expandedIndexValueCount;
 
                 if (indexEnd <= startIndex)
                 {
@@ -305,7 +309,7 @@ namespace TdmsSharp
                 }
 
                 long readStart = Math.Max(0, startIndex - indexStart);
-                long readEnd = Math.Min((long)indexInfo.NumberOfValues, startIndex + count - indexStart);
+                long readEnd = Math.Min(expandedIndexValueCount, startIndex + count - indexStart);
                 int readCount = (int)(readEnd - readStart);
 
                 var segment = indexInfo.Segment;
@@ -372,6 +376,13 @@ namespace TdmsSharp
             return chIndex.NumberOfValues * (ulong)TdmsDataTypeSizeHelper.GetSize(chIndex.DataType);
         }
 
+        private long GetExpandedValueCount(RawDataIndexInfo indexInfo)
+        {
+            if (indexInfo.NumberOfValues == 0) return 0;
+            var chunkCount = indexInfo.Segment.ChunkCount > 0 ? indexInfo.Segment.ChunkCount : 1;
+            return checked((long)indexInfo.NumberOfValues * (long)chunkCount);
+        }
+
         private long GetChannelOffsetInChunk(TdmsChannelReader channel, TdmsSegment segment)
         {
             long offset = 0;
@@ -395,6 +406,55 @@ namespace TdmsSharp
                 return (groupName, channelName);
             }
             throw new InvalidDataException($"Invalid channel path format: {path}");
+        }
+
+        private void SkipProperties(uint propertyCount)
+        {
+            for (uint i = 0; i < propertyCount; i++)
+            {
+                uint propertyNameLength = ReadUInt32();
+                _stream.Seek(propertyNameLength, SeekOrigin.Current);
+
+                var dataType = (TdmsDataType)ReadUInt32();
+                SkipValueByDataType(dataType);
+            }
+        }
+
+        private void SkipValueByDataType(TdmsDataType dataType)
+        {
+            switch (dataType)
+            {
+                case TdmsDataType.I8:
+                case TdmsDataType.U8:
+                case TdmsDataType.Boolean:
+                    _stream.Seek(1, SeekOrigin.Current);
+                    break;
+                case TdmsDataType.I16:
+                case TdmsDataType.U16:
+                    _stream.Seek(2, SeekOrigin.Current);
+                    break;
+                case TdmsDataType.I32:
+                case TdmsDataType.U32:
+                case TdmsDataType.SingleFloat:
+                    _stream.Seek(4, SeekOrigin.Current);
+                    break;
+                case TdmsDataType.I64:
+                case TdmsDataType.U64:
+                case TdmsDataType.DoubleFloat:
+                case TdmsDataType.ComplexSingleFloat:
+                    _stream.Seek(8, SeekOrigin.Current);
+                    break;
+                case TdmsDataType.TimeStamp:
+                case TdmsDataType.ComplexDoubleFloat:
+                    _stream.Seek(16, SeekOrigin.Current);
+                    break;
+                case TdmsDataType.String:
+                    uint stringLength = ReadUInt32();
+                    _stream.Seek(stringLength, SeekOrigin.Current);
+                    break;
+                default:
+                    throw new NotSupportedException($"Unsupported TDMS property type while parsing metadata: {dataType}");
+            }
         }
 
         #region Stream Readers

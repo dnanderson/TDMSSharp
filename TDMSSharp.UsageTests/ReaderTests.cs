@@ -143,4 +143,32 @@ public class ReaderTests
             }
         );
     }
+
+    [Fact]
+    public void TestReaderSkipsPropertiesAndReadsRawDataCorrectly()
+    {
+        RunTest(
+            writer =>
+            {
+                writer.SetFileProperty("author", "reader-test");
+
+                var group = writer.CreateGroup("WithProps");
+                group.SetProperty("group_prop", 42);
+
+                var channel = writer.CreateChannel("WithProps", "Signal", TdmsDataType.I32);
+                channel.SetProperty("unit", "V");
+                channel.WriteValues(new[] { 10, 20, 30, 40 });
+                writer.WriteSegment();
+            },
+            file =>
+            {
+                var group = file.GetGroup("WithProps");
+                Assert.NotNull(group);
+
+                var channel = group.GetChannel("Signal");
+                Assert.NotNull(channel);
+                Assert.Equal(new[] { 10, 20, 30, 40 }, channel.ReadData<int>());
+            }
+        );
+    }
 }

@@ -229,4 +229,80 @@ public class WriterTests
             }
         );
     }
+
+    [Fact]
+    public void TestStringChannelMultipleWritesBeforeSegmentAreValid()
+    {
+        RunTest(
+            writer =>
+            {
+                var channel = writer.CreateChannel("Strings", "S", TdmsDataType.String);
+                channel.WriteStrings(new[] { "a", "bb" });
+                channel.WriteStrings(new[] { "ccc", "dddd" });
+                writer.WriteSegment();
+            },
+            file =>
+            {
+                var group = file.GetGroup("Strings");
+                Assert.NotNull(group);
+                var channel = group.GetChannel("S");
+                Assert.NotNull(channel);
+                Assert.Equal(new[] { "a", "bb", "ccc", "dddd" }, channel.ReadStringData());
+            }
+        );
+    }
+
+    [Fact]
+    public void TestChangingActiveChannelsCreatesNewObjectListSegment()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            var c1 = writer.CreateChannel("G", "C1", TdmsDataType.I32);
+            var c2 = writer.CreateChannel("G", "C2", TdmsDataType.I32);
+
+            c1.WriteValues(new[] { 1, 2, 3 });
+            c2.WriteValues(new[] { 10, 20, 30 });
+            writer.WriteSegment();
+
+            c1.WriteValues(new[] { 4, 5, 6 });
+            writer.WriteSegment();
+        }
+
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)))
+        {
+            var file = reader.ReadFile();
+            Assert.Equal(2, file.Segments.Count);
+            Assert.True(file.Segments[1].IsNewObjectList);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6 }, file.GetGroup("G")?.GetChannel("C1")?.ReadData<int>());
+            Assert.Equal(new[] { 10, 20, 30 }, file.GetGroup("G")?.GetChannel("C2")?.ReadData<int>());
+        }
+
+        Cleanup();
+    }
+
+    [Fact]
+    public void TestStringWritesForceNewSegmentInsteadOfRawAppend()
+    {
+        string path;
+        using (var writer = CreateWriter(out path))
+        {
+            var channel = writer.CreateChannel("Strings", "S", TdmsDataType.String);
+            channel.WriteStrings(new[] { "alpha", "beta" });
+            writer.WriteSegment();
+
+            channel.WriteStrings(new[] { "gamma", "delta" });
+            writer.WriteSegment();
+        }
+
+        using (var reader = new TdmsReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)))
+        {
+            var file = reader.ReadFile();
+            Assert.Equal(2, file.Segments.Count);
+            Assert.True(file.Segments[1].ContainsMetadata);
+            Assert.Equal(new[] { "alpha", "beta", "gamma", "delta" }, file.GetGroup("Strings")?.GetChannel("S")?.ReadStringData());
+        }
+
+        Cleanup();
+    }
 }

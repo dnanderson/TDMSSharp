@@ -29,6 +29,7 @@ namespace TdmsSharp
         private readonly Dictionary<string, TdmsGroup> _groups = new();
         private readonly Dictionary<string, TdmsChannel> _channels = new();
         private readonly List<string> _channelOrder = new();
+        private List<string> _lastSegmentActiveChannelOrder = new();
 
         // Add a RecyclableMemoryStreamManager
 
@@ -164,10 +165,21 @@ namespace TdmsSharp
         /// </summary>
         public void WriteSegment()
         {
-            // Determine what needs to be written
-            var hasMetaData = DetermineIfMetaDataNeeded();
+            // Update per-channel raw data index change flags before deciding whether
+            // metadata can be omitted for this segment.
+            foreach (var channel in _channels.Values)
+            {
+                if (channel.HasDataToWrite)
+                {
+                    channel.UpdateRawDataIndex();
+                }
+            }
+
             var hasRawData = _channels.Values.Any(c => c.HasDataToWrite);
-            var newObjectList = _isFirstSegment || HasChannelOrderChanged();
+            var activeChannelOrder = GetActiveChannelOrder();
+            var newObjectList = _isFirstSegment || (hasRawData && HasChannelOrderChanged(activeChannelOrder));
+            var hasStringChannelData = _channels.Values.Any(c => c.HasDataToWrite && c.DataType == TdmsDataType.String);
+            var hasMetaData = DetermineIfMetaDataNeeded() || newObjectList || hasStringChannelData;
 
             if (!hasMetaData && !hasRawData)
                 return; // Nothing to write
@@ -201,10 +213,20 @@ namespace TdmsSharp
             return false;
         }
 
-        private bool HasChannelOrderChanged()
+        private bool HasChannelOrderChanged(IReadOnlyList<string> activeChannelOrder)
         {
-            // For simplicity, we'll track if channels were added
-            // In a full implementation, we'd track removals and reorderings
+            if (!_lastSegmentActiveChannelOrder.Any())
+                return activeChannelOrder.Any();
+
+            if (_lastSegmentActiveChannelOrder.Count != activeChannelOrder.Count)
+                return true;
+
+            for (int i = 0; i < activeChannelOrder.Count; i++)
+            {
+                if (!string.Equals(_lastSegmentActiveChannelOrder[i], activeChannelOrder[i], StringComparison.Ordinal))
+                    return true;
+            }
+
             return false;
         }
 
@@ -249,15 +271,6 @@ namespace TdmsSharp
         {
             var dataSegmentStart = _fileStream.Position;
             var indexSegmentStart = _indexStream.Position;
-
-            // UPDATE RAW DATA INDEXES BEFORE WRITING
-            foreach (var channel in _channels.Values)
-            {
-                if (channel.HasDataToWrite)
-                {
-                    channel.UpdateRawDataIndex();
-                }
-            }
 
             // Calculate TOC flags (identical for both data and index files)
             var tocFlags = TocFlags.None;
@@ -321,6 +334,10 @@ namespace TdmsSharp
             // Update tracking positions
             _currentDataSegmentStart = dataSegmentStart;
             _currentIndexSegmentStart = indexSegmentStart; // <-- FIX: Update index start position
+            if (hasRawData)
+            {
+                _lastSegmentActiveChannelOrder = GetActiveChannelOrder();
+            }
 
             // Clear modification flags and data buffers
             ResetAllFlags();
@@ -477,6 +494,11 @@ namespace TdmsSharp
                     }
                 }
             }
+        }
+
+        private List<string> GetActiveChannelOrder()
+        {
+            return _channelOrder.Where(key => _channels[key].HasDataToWrite).ToList();
         }
 
         private void WriteString(BinaryWriter writer, string value)
